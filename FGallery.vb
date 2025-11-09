@@ -2820,7 +2820,7 @@ Public Class IMDB_Worker
 #Region " IMDB Info "
 
     Public Sub IMDB_Info(ByRef cMovies As Movies_CL, e As System.ComponentModel.DoWorkEventArgs)
-        Dim IMDB_APIKeys As New List(Of String) From {"&apikey=fa718ef5", "&apikey=2b89a6c7", "&apikey=7d98db3a"}
+        Dim IMDB_APIKeys As New List(Of String) From {"&apikey="}
         Dim OMDB_APIKey As String : Randomize() : OMDB_APIKey = IMDB_APIKeys((IMDB_APIKeys.Count - 1) * Rnd())
         Dim Guardar As IO.StreamWriter
 
@@ -2997,7 +2997,7 @@ End Class
 Public Class YouTube
 
 
-    Private APIKey As String = "AIzaSyAdTL7Yi1N_fYEOTvm1swQLVkJkN6K_Qb0"
+    Private APIKey As String = ""
 
     Public Function Search(ResultList As String) As JsVideo
         Try : Dim Results As JsVideo = New Web.Script.Serialization.JavaScriptSerializer().Deserialize(Of JsVideo)(New Net.WebClient() With {.Encoding = Text.Encoding.UTF8}.DownloadString("https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=1&q=" + Net.WebUtility.UrlEncode(ResultList) + "&fields=items(id%2FvideoId%2Csnippet(channelId%2CchannelTitle%2Cdescription%2Cthumbnails%2Fdefault%2Furl%2Ctitle))%2CnextPageToken%2CpageInfo%2CprevPageToken&key=" + APIKey))

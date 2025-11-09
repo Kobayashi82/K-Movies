@@ -520,7 +520,7 @@ Fin:    Cancelado = False
 
     Private Sub GetMovieList()
         Try
-            Dim IMDB_APIKeys As New List(Of String) From {"&apikey=fa718ef5", "&apikey=2b89a6c7", "&apikey=7d98db3a"}
+            Dim IMDB_APIKeys As New List(Of String) From {"&apikey="}
             Dim OMDB_APIKey As String : Randomize() : OMDB_APIKey = IMDB_APIKeys((IMDB_APIKeys.Count - 1) * Rnd())
             LGallery.Text = "SEARCHING..." : LGallery.Refresh() : LGallery.Visible = True
             Dim url As String = "http://www.omdbapi.com/?s=" + TSTitle.Text + OMDB_APIKey
@@ -575,7 +575,7 @@ Fin:    Cancelado = False
 
     Private Sub GetMovie(ImdbID As String, Optional SearchImdb As Boolean = False)
         Try
-            Dim IMDB_APIKeys As New List(Of String) From {"&apikey=fa718ef5", "&apikey=2b89a6c7", "&apikey=7d98db3a"}
+            Dim IMDB_APIKeys As New List(Of String) From {"&apikey="}
             Dim OMDB_APIKey As String : Randomize() : OMDB_APIKey = IMDB_APIKeys((IMDB_APIKeys.Count - 1) * Rnd())
 
             If SearchImdb = True Then LGallery.Text = "SEARCHING..." : LGallery.Refresh() : LGallery.Visible = True
