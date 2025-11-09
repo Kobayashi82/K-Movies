@@ -1,12 +1,12 @@
 
 <div align="center">
 
-![Windows Application](https://img.shields.io/badge/Platform-Windows-0078D6?style=for-the-badge&logo=windows)
-![Visual Basic](https://img.shields.io/badge/Language-Visual%20Basic-5C2D91?style=for-the-badge&logo=.net)
-![.NET Framework](https://img.shields.io/badge/.NET-4.7.2-512BD4?style=for-the-badge&logo=.net)
-![WebView2](https://img.shields.io/badge/WebView2-Enabled-00B4F0?style=for-the-badge)
+![Desktop](https://img.shields.io/badge/Desktop-brown?style=for-the-badge)
+![Windows](https://img.shields.io/badge/Windows-Application-blue?style=for-the-badge)
+![Movie Manager](https://img.shields.io/badge/Movie-Manager-green?style=for-the-badge)
+![Visual Basic .NET](https://img.shields.io/badge/Language-Visual%20Basic%20.NET-red?style=for-the-badge)
 
-*Gestor de películas elegante y moderno con integración IMDB*
+*Gestor de películas con integración OMDB*
 
 </div>
 
@@ -14,7 +14,7 @@
 
 ## 🎯 Descripción
 
-**K-Movies** es un gestor de colección de películas desarrollado en Visual Basic .NET que permite organizar, visualizar y gestionar tu biblioteca de películas.
+**K-Movies 4.0** es un gestor de colección de películas desarrollado en Visual Basic .NET que permite organizar, visualizar y gestionar tu biblioteca de películas.
 
 Diseñado como una aplicación Windows Forms, K-Movies integra la API de OMDB para obtener información detallada de las películas, incluyendo portadas, clasificaciones, duración, reparto y sinopsis. Con una interfaz tipo galería, podrás navegar fácilmente por tu colección y llevar un seguimiento de las películas vistas y pendientes.
 
@@ -146,8 +146,6 @@ Diseñado como una aplicación Windows Forms, K-Movies integra la API de OMDB pa
 
 - **Sistema Operativo**: Windows 7 o superior
 - **.NET Framework**: 4.7.2 o superior
-- **WebView2 Runtime**: Microsoft Edge WebView2 (incluido)
-- **Conexión a Internet**: Para búsquedas IMDB
 - **Reproductor**: VLC Player recomendado (opcional)
 
 ## 🚀 Instalación y Uso
@@ -193,35 +191,21 @@ Las portadas se guardan como `.jpg` con el mismo nombre del archivo de video.
 ### K-Movies 3.0 (Abril 2018)
 - Versión anterior del proyecto
 
-## 🛠️ Tecnologías Utilizadas
-
-- **Visual Basic .NET**: Lenguaje principal
-- **.NET Framework 4.7.2**: Framework de desarrollo
-- **Windows Forms**: UI Framework
-- **Microsoft WebView2**: Navegador embebido
-- **OMDB API**: Obtención de datos de películas
-- **System.Drawing**: Procesamiento de imágenes
-- **BackgroundWorker**: Procesamiento asíncrono
-
 ## 📝 Notas de Desarrollo
 
 - La aplicación almacena configuración en el Registro de Windows
 - Los datos locales se guardan en `KMLocal\` (Pending y Watched)
 - Soporta detección automática de cambios en VLC mediante polling
 
-## 🤝 Contribuciones
-
-Este es un proyecto personal finalizado.
-
 ## 📄 Licencia
 
-Este proyecto está bajo licencia libre para uso personal.
+Este proyecto está licenciado bajo la WTFPL – [Do What the Fuck You Want to Public License](http://www.wtfpl.net/about/).
 
 ---
 
 <div align="center">
 
-**� Desarrollado por Kobayashi 🎬**
+**🖥️ Desarrollado por Kobayashi82 🖥️**
 
 *"Tu colección de películas organizada"*
 
