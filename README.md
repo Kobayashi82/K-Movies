@@ -4,7 +4,7 @@
 ![Desktop](https://img.shields.io/badge/Desktop-brown?style=for-the-badge)
 ![Windows](https://img.shields.io/badge/Windows-Application-blue?style=for-the-badge)
 ![Movie Manager](https://img.shields.io/badge/Movie-Manager-green?style=for-the-badge)
-![Visual Basic .NET](https://img.shields.io/badge/Language-Visual%20Basic%20.NET-red?style=for-the-badge)
+![VB.NET](https://img.shields.io/badge/Language-VB.NET-red?style=for-the-badge)
 
 *Gestor de películas con integración OMDB*
 
