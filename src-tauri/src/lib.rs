@@ -2,8 +2,10 @@ mod db;
 mod images;
 mod imdb;
 mod library;
+mod mpv;
 mod parse;
 mod playback;
+mod player;
 mod players;
 mod scanner;
 mod tmdb;
@@ -26,6 +28,7 @@ pub struct AppState {
     scanning: AtomicBool,
     transfers: transfers::Transfers,
     sessions: playback::Sessions,
+    player: player::Slot,
 }
 
 impl AppState {
@@ -269,14 +272,57 @@ fn detect_players() -> Vec<players::Player> {
 }
 
 /// Reproduce (continuando donde se quedó salvo `from_start`) y sigue el progreso si se puede.
+/// Asíncrono: en Windows, crear una ventana (el reproductor integrado) desde un comando síncrono
+/// (que corre en el hilo principal) se queda bloqueado.
 #[tauri::command]
-fn play_item(app: AppHandle, id: i64, file_id: Option<i64>, from_start: Option<bool>) -> CmdResult<()> {
+async fn play_item(app: AppHandle, id: i64, file_id: Option<i64>, from_start: Option<bool>) -> CmdResult<()> {
     playback::play(&app, id, file_id, from_start.unwrap_or(false)).map_err(err)
 }
 
 #[tauri::command]
 fn now_playing(app: AppHandle) -> Vec<playback::NowPlaying> {
     playback::list(&app)
+}
+
+/// ¿Se puede usar el reproductor integrado (está libmpv)?
+#[tauri::command]
+fn internal_player_available() -> bool {
+    mpv::available()
+}
+
+#[tauri::command]
+fn player_state(app: AppHandle) -> player::PlayerState {
+    player::state(&app)
+}
+
+#[tauri::command]
+fn player_command(app: AppHandle, args: Vec<String>) -> CmdResult<()> {
+    player::command(&app, &args).map_err(err)
+}
+
+#[tauri::command]
+fn player_set(app: AppHandle, name: String, value: String) -> CmdResult<()> {
+    player::set(&app, &name, &value).map_err(err)
+}
+
+#[tauri::command]
+fn player_sub_background(app: AppHandle, on: bool) -> CmdResult<()> {
+    player::set_sub_background(&app, on).map_err(err)
+}
+
+#[tauri::command]
+async fn player_fullscreen(app: AppHandle, on: bool) -> CmdResult<()> {
+    player::set_fullscreen(&app, on).map_err(err)
+}
+
+#[tauri::command]
+async fn player_pip(app: AppHandle, on: bool) -> CmdResult<()> {
+    player::set_pip(&app, on).map_err(err)
+}
+
+#[tauri::command]
+fn player_close(app: AppHandle) {
+    player::close(&app)
 }
 
 fn file_path(state: &AppState, file_id: i64) -> CmdResult<PathBuf> {
@@ -411,6 +457,7 @@ pub fn run() {
                 scanning: AtomicBool::new(false),
                 transfers: transfers::Transfers::default(),
                 sessions: playback::Sessions::default(),
+                player: player::Slot::default(),
             });
             Ok(())
         })
@@ -433,6 +480,14 @@ pub fn run() {
             delete_history,
             clear_progress,
             now_playing,
+            internal_player_available,
+            player_state,
+            player_command,
+            player_set,
+            player_sub_background,
+            player_fullscreen,
+            player_pip,
+            player_close,
             validate_tmdb_key,
             search_tmdb,
             identify_item,

@@ -1,7 +1,7 @@
-//! Seguimiento de lo que se está viendo: abre el reproductor, pregunta cada pocos segundos por
+//! Seguimiento de lo que se está viendo: abre el reproductor (el integrado o uno externo), sabe por
 //! dónde vas, guarda el progreso y marca la película como vista al pasar del umbral.
 
-use crate::{AppState, db, library, players};
+use crate::{AppState, db, library, player, players};
 use anyhow::{Result, anyhow, bail};
 use rusqlite::OptionalExtension;
 use serde::Serialize;
@@ -18,6 +18,9 @@ const MIN_POSITION: f64 = 60.0;
 /// Si no se ha podido seguir el progreso, a partir de cuánto tiempo abierta se pregunta "¿La terminaste?".
 const ASK_AFTER: Duration = Duration::from_secs(20 * 60);
 
+/// Valor del ajuste `playerPath` para el reproductor integrado.
+pub const INTERNAL: &str = "internal";
+
 /// Lo que se está reproduciendo ahora (se manda entero a la interfaz en el evento `playback`).
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -25,7 +28,7 @@ pub struct NowPlaying {
     pub item_id: i64,
     pub title: String,
     pub player: String,
-    /// Se puede saber por dónde va (VLC). Con los demás reproductores solo se sabe que está abierto.
+    /// Se puede saber por dónde va (integrado y VLC). Con los demás solo se sabe que está abierto.
     pub tracked: bool,
     pub position: Option<f64>,
     pub duration: Option<f64>,
@@ -64,72 +67,83 @@ fn threshold(app: &AppHandle) -> f64 {
     value.and_then(|v| v.parse::<f64>().ok()).map_or(90.0, |v| v.clamp(50.0, 99.0)) / 100.0
 }
 
-/// Abre la película. Por defecto continúa donde se quedó; `from_start` empieza de cero.
-/// Sin `file_id` usa el archivo con el que se empezó a ver o, si no, el más grande.
-pub fn play(app: &AppHandle, item_id: i64, file_id: Option<i64>, from_start: bool) -> Result<()> {
+/// Qué se va a reproducir y desde dónde.
+pub struct Resolved {
+    pub item_id: i64,
+    pub file_id: i64,
+    pub file: PathBuf,
+    pub start: Option<f64>,
+    pub title: String,
+    /// Ajuste `playerPath`: vacío (automático), `internal` o la ruta de un reproductor.
+    player: Option<String>,
+}
+
+/// Por defecto continúa donde se quedó; `from_start` empieza de cero. Sin `file_id` usa el
+/// archivo con el que se empezó a ver o, si no, el más grande.
+fn resolve(app: &AppHandle, item_id: i64, file_id: Option<i64>, from_start: bool) -> Result<Resolved> {
     let state = app.state::<AppState>();
-    if state.sessions.lock().iter().any(|s| s.item_id == item_id) {
-        bail!("already_playing");
-    }
-    let (file_id, file, start, title, player) = {
-        let conn = state.db();
-        let resume: Option<(Option<i64>, f64)> = conn
-            .query_row("SELECT file_id, position FROM playback WHERE item_id = ?1", [item_id], |r| {
+    let conn = state.db();
+    let resume: Option<(Option<i64>, f64)> = conn
+        .query_row("SELECT file_id, position FROM playback WHERE item_id = ?1", [item_id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .optional()?;
+    let wanted = file_id.or(resume.and_then(|r| r.0));
+    let chosen: Option<(i64, String)> = match wanted {
+        Some(id) => conn
+            .query_row("SELECT id, path FROM files WHERE id = ?1 AND item_id = ?2", [id, item_id], |r| {
                 Ok((r.get(0)?, r.get(1)?))
             })
-            .optional()?;
-        let wanted = file_id.or(resume.and_then(|r| r.0));
-        let chosen: Option<(i64, String)> = match wanted {
-            Some(id) => conn
-                .query_row("SELECT id, path FROM files WHERE id = ?1 AND item_id = ?2", [id, item_id], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
-                })
-                .optional()?,
-            None => None,
-        };
-        let (file_id, file) = match chosen {
-            Some(f) => f,
-            None => db::largest_file(&conn, item_id)?.ok_or_else(|| anyhow!("file_missing"))?,
-        };
-        // La posición vale aunque se elija otra versión del archivo: es la misma película.
-        let start = if from_start { None } else { resume.map(|r| r.1) };
-        let title: String = conn.query_row("SELECT title FROM items WHERE id = ?1", [item_id], |r| r.get(0))?;
-        let player = db::setting(&conn, "playerPath")?.filter(|p| !p.is_empty()).map(PathBuf::from);
-        (file_id, PathBuf::from(file), start, title, player)
+            .optional()?,
+        None => None,
     };
-    let player = player.or_else(|| players::detect().into_iter().next().map(|p| PathBuf::from(p.path)));
-    let Some(player) = player else {
-        // Sin reproductor configurado ni detectado: el predeterminado de Windows, sin seguimiento.
-        if !file.exists() {
-            bail!("file_missing");
-        }
-        return tauri_plugin_opener::open_path(&file, None::<&str>).map_err(|e| anyhow!(e.to_string()));
+    let (file_id, file) = match chosen {
+        Some(f) => f,
+        None => db::largest_file(&conn, item_id)?.ok_or_else(|| anyhow!("file_missing"))?,
     };
-    let launched = players::launch(&player, &file, start)?;
-    state.sessions.lock().push(NowPlaying {
+    let file = PathBuf::from(file);
+    if !file.exists() {
+        bail!("file_missing");
+    }
+    Ok(Resolved {
         item_id,
-        title,
-        player: players::name_of(&player),
-        tracked: launched.vlc.is_some(),
-        position: start,
-        duration: None,
-        paused: false,
-        watched: false,
-    });
-    changed(app);
-    let app = app.clone();
-    let name = file.file_name().unwrap_or_default().to_string_lossy().into_owned();
-    tauri::async_runtime::spawn(async move { track(app, item_id, file_id, name, launched).await });
+        file_id,
+        file,
+        // La posición vale aunque se elija otra versión del archivo: es la misma película.
+        start: if from_start { None } else { resume.map(|r| r.1) },
+        title: conn.query_row("SELECT title FROM items WHERE id = ?1", [item_id], |r| r.get(0))?,
+        player: db::setting(&conn, "playerPath")?.filter(|p| !p.is_empty()),
+    })
+}
+
+/// Abre la película en el reproductor de los ajustes: el integrado (si está libmpv), VLC u otro.
+pub fn play(app: &AppHandle, item_id: i64, file_id: Option<i64>, from_start: bool) -> Result<()> {
+    if app.state::<AppState>().sessions.lock().iter().any(|s| s.item_id == item_id) {
+        bail!("already_playing");
+    }
+    let r = resolve(app, item_id, file_id, from_start)?;
+    let internal = match r.player.as_deref() {
+        Some(INTERNAL) => true,
+        None => crate::mpv::available(),
+        Some(_) => false,
+    };
+    if internal {
+        return player::open(app, r);
+    }
+    let path = r.player.as_ref().map(PathBuf::from).filter(|p| p.is_file());
+    let Some(path) = path.or_else(|| players::detect().into_iter().next().map(|p| PathBuf::from(p.path))) else {
+        // Sin reproductor configurado ni detectado: el predeterminado de Windows, sin seguimiento.
+        return tauri_plugin_opener::open_path(&r.file, None::<&str>).map_err(|e| anyhow!(e.to_string()));
+    };
+    let launched = players::launch(&path, &r.file, r.start)?;
+    let tracker = Tracker::begin(app, &r, players::name_of(&path), launched.vlc.is_some());
+    let name = r.file.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    tauri::async_runtime::spawn(async move { track_external(tracker, name, launched).await });
     Ok(())
 }
 
-async fn track(app: AppHandle, item_id: i64, file_id: i64, file_name: String, mut launched: players::Launched) {
-    let started = Instant::now();
-    let threshold = threshold(&app);
-    let mut last: Option<(f64, f64)> = None; // posición y duración
-    let mut paused = false;
-    let mut watched = false;
-    let mut saved_at = Instant::now();
+/// Reproductor externo: con VLC se le pregunta por dónde va; con los demás solo se espera a que se cierre.
+async fn track_external(mut tracker: Tracker, file_name: String, mut launched: players::Launched) {
     loop {
         tokio::time::sleep(POLL).await;
         if !matches!(launched.child.try_wait(), Ok(None)) {
@@ -139,40 +153,96 @@ async fn track(app: AppHandle, item_id: i64, file_id: i64, file_name: String, mu
         // Mientras VLC arranca, la interfaz HTTP aún no responde: se reintenta en la siguiente vuelta.
         let Ok(st) = vlc.status().await else { continue };
         // Solo cuenta nuestra película: parada (al acabar vuelve a 0) u otro archivo abierto en ese VLC, no.
-        if st.length <= 0.0 || !matches!(st.state.as_str(), "playing" | "paused") || !st.is_file(&file_name) {
+        if !matches!(st.state.as_str(), "playing" | "paused") || !st.is_file(&file_name) {
             continue;
         }
-        let now_paused = st.state == "paused";
-        last = Some((st.time, st.length));
-        if !watched && st.time / st.length >= threshold {
-            watched = true;
-            mark_watched(&app, item_id);
-        } else if !watched && st.time >= MIN_POSITION && (saved_at.elapsed() >= SAVE_EVERY || now_paused != paused) {
-            save(&app, item_id, file_id, st.time, st.length);
-            saved_at = Instant::now();
+        tracker.status(st.time, st.length, st.state == "paused");
+    }
+    tracker.finish();
+}
+
+/// Lleva la cuenta de una sesión de reproducción, venga del reproductor que venga.
+pub struct Tracker {
+    app: AppHandle,
+    item_id: i64,
+    file_id: i64,
+    threshold: f64,
+    last: Option<(f64, f64)>, // posición y duración
+    paused: bool,
+    watched: bool,
+    saved_at: Instant,
+    started: Instant,
+}
+
+impl Tracker {
+    /// Apunta la sesión (aparece en la interfaz como "reproduciendo").
+    pub fn begin(app: &AppHandle, r: &Resolved, player: String, tracked: bool) -> Self {
+        app.state::<AppState>().sessions.lock().push(NowPlaying {
+            item_id: r.item_id,
+            title: r.title.clone(),
+            player,
+            tracked,
+            position: r.start,
+            duration: None,
+            paused: false,
+            watched: false,
+        });
+        changed(app);
+        Tracker {
+            app: app.clone(),
+            item_id: r.item_id,
+            file_id: r.file_id,
+            threshold: threshold(app),
+            last: None,
+            paused: false,
+            watched: false,
+            saved_at: Instant::now(),
+            started: Instant::now(),
         }
-        paused = now_paused;
-        update(&app, item_id, |s| {
-            s.position = Some(st.time);
-            s.duration = Some(st.length);
+    }
+
+    /// Estado leído del reproductor (en segundos).
+    pub fn status(&mut self, position: f64, duration: f64, paused: bool) {
+        if duration <= 0.0 {
+            return;
+        }
+        self.last = Some((position, duration));
+        if !self.watched && position / duration >= self.threshold {
+            self.watched = true;
+            mark_watched(&self.app, self.item_id);
+        } else if !self.watched
+            && position >= MIN_POSITION
+            && (self.saved_at.elapsed() >= SAVE_EVERY || paused != self.paused)
+        {
+            save(&self.app, self.item_id, self.file_id, position, duration);
+            self.saved_at = Instant::now();
+        }
+        self.paused = paused;
+        let watched = self.watched;
+        update(&self.app, self.item_id, |s| {
+            s.position = Some(position);
+            s.duration = Some(duration);
             s.paused = paused;
             s.watched = watched;
         });
     }
 
-    // Al cerrar el reproductor.
-    match last {
-        Some((pos, len)) if !watched && pos / len >= threshold => mark_watched(&app, item_id),
-        Some((pos, len)) if !watched && pos >= MIN_POSITION => save(&app, item_id, file_id, pos, len),
-        None if started.elapsed() >= ASK_AFTER => {
-            let title = list(&app).into_iter().find(|s| s.item_id == item_id).map(|s| s.title).unwrap_or_default();
-            library::notice(&app, "askFinished", title, Some(item_id), None);
+    /// El reproductor se ha cerrado: se guarda dónde se quedó (o se marca como vista).
+    pub fn finish(self) {
+        let app = &self.app;
+        match self.last {
+            Some((pos, len)) if !self.watched && pos / len >= self.threshold => mark_watched(app, self.item_id),
+            Some((pos, len)) if !self.watched && pos >= MIN_POSITION => save(app, self.item_id, self.file_id, pos, len),
+            None if self.started.elapsed() >= ASK_AFTER => {
+                let title = list(app).into_iter().find(|s| s.item_id == self.item_id).map(|s| s.title).unwrap_or_default();
+                library::notice(app, "askFinished", title, Some(self.item_id), None);
+            }
+            _ => {}
         }
-        _ => {}
+        app.state::<AppState>().sessions.lock().retain(|s| s.item_id != self.item_id);
+        changed(app);
+        let _ = app.emit("library-changed", ());
     }
-    app.state::<AppState>().sessions.lock().retain(|s| s.item_id != item_id);
-    changed(&app);
-    let _ = app.emit("library-changed", ());
 }
 
 fn save(app: &AppHandle, item_id: i64, file_id: i64, position: f64, duration: f64) {

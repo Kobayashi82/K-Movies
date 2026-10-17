@@ -7,7 +7,12 @@
     <style>
       html { background: #0b0d12; }
       @media (prefers-color-scheme: light) { html { background: #f4f5f8; } }
+      html.player-mode, html.player-mode body { background: transparent; }
     </style>
+    <script>
+      // Ventana del reproductor integrado: transparente desde el primer fotograma (el vídeo va debajo).
+      if (location.hash === "#player") document.documentElement.className = "player-mode";
+    </script>
   </head>
   <body>
     <div id="root"></div>

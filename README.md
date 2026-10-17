@@ -8,7 +8,8 @@ Sucesor de K-Movies 4.0 (VB.NET). Construido con [Tauri 2](https://tauri.app), R
 
 - **Fase 1 (base):** carpetas, escaneo, identificación con TMDb, notas de IMDb, rejilla de pósters con tamaño ajustable, orden, filtros, búsqueda, ficha, reproducir, Pendientes y Vistas, idiomas (inglés y español) y temas claro/oscuro.
 - **Fase 2 (ficha y archivos):** tráiler dentro de la app, corrección manual de la identificación (por ficha o por archivo), añadir películas a Pendientes o Vistas sin tenerlas, importar / copiar a / mover a con progreso, borrar a la papelera, actualizar información y opciones de las tarjetas.
-- **Fase 3 (seguimiento de la reproducción):** con VLC, K-Movies sigue por dónde vas, guarda la posición y continúa desde ahí, y marca la película como vista al pasar del 90 % (configurable). Historial de visionados (con revisionados y fechas editables), fila "Seguir viendo" y progreso en directo. Con otros reproductores, pregunta al cerrarlos si la terminaste.
+- **Fase 3 (seguimiento de la reproducción):** con el reproductor integrado o con VLC, K-Movies sigue por dónde vas, guarda la posición y continúa desde ahí, y marca la película como vista al pasar del 90 % (configurable). Historial de visionados (con revisionados y fechas editables), fila "Seguir viendo" y progreso en directo. Con otros reproductores, pregunta al cerrarlos si la terminaste.
+- **Reproductor integrado (prueba de concepto):** mpv dentro de K-Movies: todos los formatos, pistas de audio y subtítulos, tamaño, posición y fondo de los subtítulos, retardo del audio y los subtítulos, pantalla completa e imagen en imagen. Necesita `libmpv-2.dll` (ver [src-tauri/lib/README.md](src-tauri/lib/README.md)).
 
 Ver [ESPECIFICACION.md](ESPECIFICACION.md) para el plan completo y [DECISIONES.md](DECISIONES.md) para las decisiones tomadas.
 

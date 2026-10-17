@@ -118,3 +118,20 @@ Registro de decisiones tomadas durante el desarrollo, como pide `ESPECIFICACION.
 - Va dentro del contenedor de la rejilla virtualizada (como cabecera medida), así se desplaza con ella sin romper la virtualización.
 - Tarjetas apaisadas con el fondo de la película, el progreso y lo que queda; el botón de reproducir continúa directamente y la X olvida la posición.
 - Mientras se ve, el aviso de la esquina, la ficha y la barra del póster muestran el progreso en directo (evento `playback`), sin recargar la biblioteca cada 2 s.
+
+## Reproductor integrado (prueba de concepto, 2026-10-17)
+
+Confirmado con el usuario: ver las películas dentro de la app, con todos los formatos, cambio de pistas de audio y subtítulos, estilo y posición de los subtítulos, retardo del audio y de los subtítulos, e imagen en imagen. VLC (u otro) queda como opción en Ajustes.
+
+- **libmpv** (`libmpv-2.dll`, compilaciones de shinchiro) y no el `<video>` de WebView2. El del navegador no lee bien MKV, no tiene AC3, DTS ni TrueHD, no cambia de pista de audio de forma fiable, solo acepta WebVTT (nada de PGS o VobSub) y no permite retrasar el audio. Convertir al vuelo queda fuera del alcance. mpv lo trae todo (FFmpeg) y cada ajuste se cambia en marcha. Descartado libVLC: el estilo de los subtítulos se cambia peor en marcha.
+- **Carga dinámica** (`libloading`), sin enlazar al compilar. Si la DLL no está, la app funciona igual con el reproductor externo. Se busca junto al ejecutable y, en desarrollo, en `src-tauri/lib/` (fuera de git por su tamaño: 121 MB, unos 31 MB comprimida; ver `src-tauri/lib/README.md`). Falta incluirla en el instalador.
+- **Cómo se compone**: una ventana de Tauri sin bordes y transparente. mpv dibuja en ella como ventana hija (opción `wid`) y se manda al fondo del orden Z (`SetWindowPos(HWND_BOTTOM)`). WebView2, con fondo transparente, queda encima con los controles. **Verificado que funciona** (vídeo HEVC, controles HTML encima, subtítulos de mpv visibles). Lo único que no se puede es desenfocar (`backdrop-filter`) lo que hay detrás de un panel, porque el vídeo no pasa por el WebView: los paneles son casi opacos.
+- Alternativas que no han hecho falta: ventana de controles flotante aparte y los controles de mpv (`uosc`).
+- Los comandos que crean o cambian la ventana del reproductor son **asíncronos**: en Windows, crear una ventana desde un comando síncrono (que corre en el hilo principal) se queda bloqueado (se reprodujo: la ventana se quedaba en `about:blank`).
+- Ajustes de mpv: `vo=gpu-next`, `hwdec=auto-safe`, sin atajos ni ratón propios (los lleva la interfaz web), `sub-auto=fuzzy` (subtítulos externos con nombre parecido) y la posición de inicio con `start`.
+- **Subtítulos**: tamaño (`sub-scale`), posición (`sub-pos`) y caja de fondo (`sub-border-style=background-box`, `sub-back-color` semitransparente) o contorno clásico. Se recuerdan para todas las películas. Mientras se ven los controles, los subtítulos suben (`sub-margin-y`) para no quedar tapados.
+- **Retardos** del audio (pasos de 50 ms) y de los subtítulos (100 ms, también con Z/X como en mpv): por archivo, no se recuerdan (de momento).
+- Los botones de "más/menos" mandan `add` a mpv en vez de calcular el valor en la interfaz: el estado llega 4 veces por segundo y con clics rápidos se sumaba sobre un valor viejo. El volumen y el estilo de los subtítulos los guarda el backend cuando mpv confirma el cambio.
+- **Imagen en imagen**: la misma ventana a 480×270, siempre encima, en la esquina inferior derecha del área de trabajo. Al salir recupera tamaño y posición.
+- El seguimiento (posición, vista al pasar del umbral, historial) es el mismo que con VLC: la lógica está ahora en `playback::Tracker`, común a los dos.
+- "Automático" en Ajustes → Reproductor usa el integrado si está libmpv y, si no, el primer reproductor que encuentre.

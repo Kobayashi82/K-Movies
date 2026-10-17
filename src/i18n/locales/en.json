@@ -121,6 +121,34 @@
     "previous": "Previous",
     "next": "Next"
   },
+  "player": {
+    "play": "Play",
+    "pause": "Pause",
+    "back10": "Back 10 s",
+    "forward10": "Forward 10 s",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "audio": "Audio",
+    "subtitles": "Subtitles",
+    "off": "Off",
+    "track": "Track {{id}}",
+    "forced": "forced",
+    "external": "external",
+    "audioDelay": "Audio delay",
+    "subDelay": "Subtitle delay",
+    "subSize": "Size",
+    "subPosition": "Position",
+    "subBackground": "Background behind text",
+    "bottom": "Bottom",
+    "up": "Move up",
+    "down": "Move down",
+    "reset": "Reset",
+    "pip": "Picture in picture",
+    "exitPip": "Back to window",
+    "fullscreen": "Full screen",
+    "exitFullscreen": "Exit full screen",
+    "close": "Close"
+  },
   "playback": {
     "playing": "Playing",
     "paused": "Paused",
@@ -173,7 +201,8 @@
     "metadataLanguageHint": "Synopses, titles and genres are downloaded in this language, with English as a fallback.",
     "player": "Player",
     "playerApp": "Open movies with",
-    "playerAuto": "Automatic (first one found)",
+    "playerAuto": "Automatic (built-in, or else the first one found)",
+    "playerInternal": "K-Movies (built-in)",
     "playerOther": "Other…",
     "choosePlayer": "Choose player",
     "appearance": "Appearance",
@@ -198,7 +227,7 @@
     "posterYear": "Show the year next to the title",
     "posterRating_both": "Both",
     "watchedThreshold": "Mark as watched after",
-    "trackingHint": "With VLC, K-Movies knows where you are: it saves your position, resumes from there and marks the movie as watched. With other players, it asks whether you finished it when you close them."
+    "trackingHint": "With the built-in player or VLC, K-Movies knows where you are: it saves your position, resumes from there and marks the movie as watched. With other players, it asks whether you finished it when you close them."
   },
   "welcome": {
     "title": "Welcome to K-Movies",

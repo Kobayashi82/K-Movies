@@ -121,6 +121,34 @@
     "previous": "Anteriores",
     "next": "Siguientes"
   },
+  "player": {
+    "play": "Reproducir",
+    "pause": "Pausa",
+    "back10": "Retroceder 10 s",
+    "forward10": "Avanzar 10 s",
+    "mute": "Silenciar",
+    "unmute": "Quitar silencio",
+    "audio": "Audio",
+    "subtitles": "Subtítulos",
+    "off": "Desactivados",
+    "track": "Pista {{id}}",
+    "forced": "forzados",
+    "external": "externo",
+    "audioDelay": "Retardo del audio",
+    "subDelay": "Retardo de los subtítulos",
+    "subSize": "Tamaño",
+    "subPosition": "Posición",
+    "subBackground": "Fondo detrás del texto",
+    "bottom": "Abajo",
+    "up": "Subir",
+    "down": "Bajar",
+    "reset": "Restablecer",
+    "pip": "Imagen en imagen",
+    "exitPip": "Volver a la ventana",
+    "fullscreen": "Pantalla completa",
+    "exitFullscreen": "Salir de pantalla completa",
+    "close": "Cerrar"
+  },
   "playback": {
     "playing": "Reproduciendo",
     "paused": "En pausa",
@@ -173,7 +201,8 @@
     "metadataLanguageHint": "Sinopsis, títulos y géneros se descargan en este idioma; lo que falte, en inglés.",
     "player": "Reproductor",
     "playerApp": "Abrir las películas con",
-    "playerAuto": "Automático (el primero que se encuentre)",
+    "playerAuto": "Automático (el integrado o, si no, el primero que se encuentre)",
+    "playerInternal": "K-Movies (integrado)",
     "playerOther": "Otro…",
     "choosePlayer": "Elegir reproductor",
     "appearance": "Apariencia",
@@ -198,7 +227,7 @@
     "posterYear": "Mostrar el año junto al título",
     "posterRating_both": "Ambas",
     "watchedThreshold": "Marcar como vista al llegar al",
-    "trackingHint": "Con VLC, K-Movies sabe por dónde vas: guarda la posición, continúa desde ahí y marca la película como vista. Con otros reproductores, al cerrarlos te pregunta si la terminaste."
+    "trackingHint": "Con el reproductor integrado o con VLC, K-Movies sabe por dónde vas: guarda la posición, continúa desde ahí y marca la película como vista. Con otros reproductores, al cerrarlos te pregunta si la terminaste."
   },
   "welcome": {
     "title": "Bienvenido a K-Movies",

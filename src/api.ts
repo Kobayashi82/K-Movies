@@ -137,6 +137,41 @@ export interface Notice {
   detail: string | null;
 }
 
+/** Una pista del archivo tal como la describe mpv (`track-list`). */
+export interface Track {
+  id: number;
+  type: "video" | "audio" | "sub";
+  lang?: string;
+  title?: string;
+  codec?: string;
+  selected?: boolean;
+  default?: boolean;
+  forced?: boolean;
+  external?: boolean;
+  "demux-channel-count"?: number;
+  "external-filename"?: string;
+}
+
+/** Estado del reproductor integrado (evento `player-state`). */
+export interface PlayerState {
+  itemId: number;
+  title: string;
+  position: number | null;
+  duration: number | null;
+  paused: boolean;
+  buffering: boolean;
+  volume: number;
+  mute: boolean;
+  tracks: Track[] | null;
+  audioDelay: number;
+  subDelay: number;
+  subScale: number;
+  subPos: number;
+  subBackground: boolean;
+  fullscreen: boolean;
+  pip: boolean;
+}
+
 /** Qué hacer si el archivo ya existe en el destino. */
 export type Conflict = "ask" | "rename" | "replace";
 
@@ -164,6 +199,17 @@ export const api = {
   playItem: (id: number, opts: { fileId?: number; fromStart?: boolean } = {}) =>
     invoke<void>("play_item", { id, fileId: opts.fileId, fromStart: opts.fromStart }),
   nowPlaying: () => invoke<NowPlaying[]>("now_playing"),
+  internalPlayerAvailable: () => invoke<boolean>("internal_player_available"),
+  player: {
+    state: () => invoke<PlayerState>("player_state"),
+    command: (...args: (string | number)[]) => invoke<void>("player_command", { args: args.map(String) }),
+    set: (name: string, value: string | number | boolean) =>
+      invoke<void>("player_set", { name, value: typeof value === "boolean" ? (value ? "yes" : "no") : String(value) }),
+    subBackground: (on: boolean) => invoke<void>("player_sub_background", { on }),
+    fullscreen: (on: boolean) => invoke<void>("player_fullscreen", { on }),
+    pip: (on: boolean) => invoke<void>("player_pip", { on }),
+    close: () => invoke<void>("player_close"),
+  },
   listHistory: (itemId?: number) => invoke<HistoryEntry[]>("list_history", { itemId }),
   addHistory: (id: number, date?: string) => invoke<void>("add_history", { id, date }),
   setHistoryDate: (id: number, date: string) => invoke<void>("set_history_date", { id, date }),
@@ -196,7 +242,10 @@ export const onNotice = (cb: (n: Notice) => void): Promise<UnlistenFn> => listen
 export const onPlayback = (cb: (p: NowPlaying[]) => void): Promise<UnlistenFn> =>
   listen<NowPlaying[]>("playback", (e) => cb(e.payload));
 
-export const onLibraryChanged =(cb: () => void): Promise<UnlistenFn> => listen("library-changed", () => cb());
+export const onPlayerState = (cb: (p: PlayerState) => void): Promise<UnlistenFn> =>
+  listen<PlayerState>("player-state", (e) => cb(e.payload));
+
+export const onLibraryChanged = (cb: () => void): Promise<UnlistenFn> => listen("library-changed", () => cb());
 
 /** Ruta local de la caché → URL que puede cargar el WebView. */
 export const fileUrl = (path: string | null) => (path ? convertFileSrc(path) : null);

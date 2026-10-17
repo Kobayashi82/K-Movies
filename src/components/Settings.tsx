@@ -36,9 +36,11 @@ export function Settings() {
   const [showKey, setShowKey] = useState(false);
   const [keyState, setKeyState] = useState<"idle" | "checking" | "ok" | "bad" | "error">("idle");
   const [players, setPlayers] = useState<Player[]>([]);
+  const [internal, setInternal] = useState(false);
 
   useEffect(() => {
     void api.detectPlayers().then(setPlayers);
+    void api.internalPlayerAvailable().then(setInternal);
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && openSettings(false);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -190,16 +192,19 @@ export function Settings() {
             <label className="field">
               <span>{t("settings.playerApp")}</span>
               <select
-                value={players.some((p) => p.path === playerPath) || !playerPath ? playerPath : "__custom"}
+                value={players.some((p) => p.path === playerPath) || !playerPath || playerPath === "internal" ? playerPath : "__custom"}
                 onChange={(e) => (e.target.value === "__custom" ? void pickPlayer() : setSetting("playerPath", e.target.value))}
               >
                 <option value="">{t("settings.playerAuto")}</option>
+                {internal && <option value="internal">{t("settings.playerInternal")}</option>}
                 {players.map((p) => (
                   <option key={p.path} value={p.path}>
                     {p.name}
                   </option>
                 ))}
-                {playerPath && !players.some((p) => p.path === playerPath) && <option value={playerPath}>{playerPath}</option>}
+                {playerPath && playerPath !== "internal" && !players.some((p) => p.path === playerPath) && (
+                  <option value={playerPath}>{playerPath}</option>
+                )}
                 <option value="__custom">{t("settings.playerOther")}</option>
               </select>
             </label>
