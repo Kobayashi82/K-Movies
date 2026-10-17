@@ -518,6 +518,8 @@ pub fn run() {
             });
             // Archivos nuevos o borrados en las carpetas de la biblioteca: se reescanea solo.
             watch::start(app.handle());
+            // libmpv va dentro del ejecutable: se descomprime ya, en segundo plano, si hace falta.
+            mpv::prepare();
             // Cerrar K-Movies cierra también la película (y guarda por dónde ibas).
             if let Some(main) = app.get_webview_window("main") {
                 let handle = app.handle().clone();

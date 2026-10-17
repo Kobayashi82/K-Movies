@@ -58,7 +58,14 @@ struct Api {
 
 static API: OnceLock<Option<Api>> = OnceLock::new();
 
-/// Dónde se busca la DLL: junto al ejecutable (instalada) y, en desarrollo, en `src-tauri/lib`.
+/// libmpv comprimida dentro del ejecutable (ver `build.rs`). Vacía en desarrollo o si no estaba
+/// la DLL al compilar.
+static EMBEDDED: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libmpv-2.dll.zst"));
+/// Nombre con el que se descomprime (lleva la huella de esa versión).
+const EMBEDDED_NAME: &str = env!("KMOVIES_LIBMPV_NAME");
+
+/// Dónde se busca la DLL suelta: junto al ejecutable (instalaciones antiguas, o si se quiere
+/// probar otra versión) y, en desarrollo, en `src-tauri/lib`.
 fn candidates() -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)) {
@@ -70,20 +77,56 @@ fn candidates() -> Vec<PathBuf> {
     out
 }
 
+/// Descomprime la libmpv del ejecutable en `%LOCALAPPDATA%\com.kobayashi82.kmovies\lib` (solo la
+/// primera vez de cada versión) y devuelve su ruta. Borra las de versiones anteriores.
+fn extract_embedded() -> Option<PathBuf> {
+    if EMBEDDED.is_empty() {
+        return None;
+    }
+    let dir = PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("com.kobayashi82.kmovies").join("lib");
+    let path = dir.join(EMBEDDED_NAME);
+    if path.is_file() {
+        return Some(path);
+    }
+    // A un nombre temporal y luego se renombra: una descompresión cortada nunca deja una DLL a medias.
+    let part = dir.join(format!("{EMBEDDED_NAME}.{}.part", std::process::id()));
+    let written = std::fs::create_dir_all(&dir).and_then(|()| {
+        let mut file = std::fs::File::create(&part)?;
+        zstd::stream::copy_decode(EMBEDDED, &mut file)?;
+        file.sync_all()
+    });
+    if let Err(e) = written.and_then(|()| std::fs::rename(&part, &path)) {
+        let _ = std::fs::remove_file(&part);
+        // Otra ventana de K-Movies pudo descomprimirla a la vez.
+        if !path.is_file() {
+            eprintln!("[mpv] no se pudo descomprimir libmpv: {e}");
+            return None;
+        }
+    }
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("libmpv-2-") && name != EMBEDDED_NAME {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    Some(path)
+}
+
 fn load() -> Option<Api> {
-    for path in candidates().into_iter().filter(|p| p.is_file()) {
+    candidates().iter().filter(|p| p.is_file()).find_map(|p| open(p)).or_else(|| open(&extract_embedded()?))
+}
+
+fn open(path: &Path) -> Option<Api> {
+    {
         // SAFETY: es libmpv; los símbolos se declaran con las firmas de `mpv/client.h` (API 2.x).
         unsafe {
-            let Ok(lib) = Library::new(&path) else { continue };
+            let lib = Library::new(path).ok()?;
             macro_rules! sym {
                 ($name:literal) => {
-                    match lib.get($name) {
-                        Ok(s) => *s,
-                        Err(_) => continue,
-                    }
+                    lib.get($name).ok().map(|s| *s)?
                 };
             }
-            return Some(Api {
+            Some(Api {
                 create: sym!(b"mpv_create\0"),
                 initialize: sym!(b"mpv_initialize\0"),
                 set_option_string: sym!(b"mpv_set_option_string\0"),
@@ -97,19 +140,24 @@ fn load() -> Option<Api> {
                 free: sym!(b"mpv_free\0"),
                 error_string: sym!(b"mpv_error_string\0"),
                 _lib: lib,
-            });
+            })
         }
     }
-    None
 }
 
 fn api() -> Option<&'static Api> {
     API.get_or_init(load).as_ref()
 }
 
-/// ¿Está libmpv disponible?
+/// ¿Está libmpv disponible? La primera vez la carga (y, si va dentro del ejecutable, la descomprime).
 pub fn available() -> bool {
     api().is_some()
+}
+
+/// Deja libmpv lista en segundo plano al arrancar, para que el primer "Reproducir" no espere a
+/// descomprimirla.
+pub fn prepare() {
+    std::thread::spawn(available);
 }
 
 #[derive(Debug, Clone)]

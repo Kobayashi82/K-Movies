@@ -1,0 +1,14 @@
+<!-- Origen de los iconos de la app: el mismo logo que src/components/Logo.tsx (colores del tema oscuro).
+     Para regenerarlos: npx tauri icon src-tauri/icons/app-icon.svg -o <carpeta temporal> y copiar los que usa tauri.conf.json -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 32 32">
+  <rect x="2" y="5" width="28" height="22" rx="5" fill="#3ddc97"/>
+  <g fill="#052616" opacity="0.55">
+    <rect x="4.5" y="8" width="2.5" height="2.5" rx="0.6"/>
+    <rect x="4.5" y="14.75" width="2.5" height="2.5" rx="0.6"/>
+    <rect x="4.5" y="21.5" width="2.5" height="2.5" rx="0.6"/>
+    <rect x="25" y="8" width="2.5" height="2.5" rx="0.6"/>
+    <rect x="25" y="14.75" width="2.5" height="2.5" rx="0.6"/>
+    <rect x="25" y="21.5" width="2.5" height="2.5" rx="0.6"/>
+  </g>
+  <path d="M11.5 9.5v13M11.5 16.5l7-7M14 14l5.5 8.5" stroke="#052616" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

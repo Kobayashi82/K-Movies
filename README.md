@@ -23,7 +23,7 @@ Requisitos: [Node.js](https://nodejs.org) 20+, [Rust](https://rustup.rs) y las *
 npm install
 npm run libmpv         # libmpv-2.dll para el reproductor integrado (una vez)
 npm run tauri dev      # desarrollo con recarga en caliente
-npm run tauri build    # instalador en src-tauri/target/release/bundle/nsis
+npm run tauri build    # src-tauri/target/release/K-Movies.exe: un solo archivo, con todo dentro
 cd src-tauri && cargo test
 ```
 

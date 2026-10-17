@@ -212,3 +212,13 @@ Descartado con el usuario: seguir mpv y MPC como reproductores externos (el inte
 
 ### Clave de TMDb
 - Se queda en la base de datos (`%LOCALAPPDATA%`, solo accesible para tu usuario). Guardarla en el almacén de credenciales de Windows no protege de mucho más (cualquier programa que corra como tú puede leer ambos), es una clave gratuita y revocable, y complicaría copiar la carpeta de datos a otro PC.
+
+## Un solo ejecutable (2026-10-17)
+
+- Pedido por el usuario: **`K-Movies.exe` con todo dentro**. La interfaz ya iba dentro del ejecutable (Tauri la incrusta) y WebView2 viene con Windows 11; faltaba `libmpv-2.dll`.
+- `build.rs` la comprime con zstd (nivel 19, ventana de 128 MB) y va incrustada con `include_bytes!`: el ejecutable pasa de 10 a 45 MB. Al arrancar, en segundo plano, se descomprime **una vez** en `%LOCALAPPDATA%\com.kobayashi82.kmovies\lib\libmpv-2-<huella>.dll` (115 MB) y se carga desde ahí; las siguientes veces ya está. Comprobado copiando solo el `.exe` a una carpeta vacía: el reproductor integrado está listo antes de que la interfaz lo pida.
+- Descartado cargar la DLL directamente desde memoria (sin escribirla a disco): hay que reimplementar el cargador de Windows (reubicaciones, TLS, excepciones) para una DLL de 120 MB, es frágil y los antivirus lo miran mal. Descartado también enlazar mpv de forma estática: no hay compilaciones estáticas de libmpv para Windows y habría que compilar mpv y FFmpeg.
+- La DLL se descomprime con otro nombre si cambia (la huella va en el nombre) y las versiones viejas se borran. Si hay una `libmpv-2.dll` suelta junto al ejecutable, tiene prioridad.
+- En desarrollo no se incrusta (compila más rápido); se usa la de `src-tauri/lib`.
+- El ejecutable se llama `K-Movies.exe` (`mainBinaryName`) en vez de `kmovies.exe`. **Sin instalador** (`bundle.active = false`): el usuario no lo quiere; el `.exe` se copia donde se quiera y listo.
+- **Icono**: el mismo logo de la barra de título (el fotograma verde con la "K", colores del tema oscuro). El origen está en `src-tauri/icons/app-icon.svg` y los tamaños se generan con `npx tauri icon`.

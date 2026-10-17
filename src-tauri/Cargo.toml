@@ -13,6 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+zstd = { version = "0.14.3", features = ["zstdmt"] }
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset"] }
@@ -35,6 +36,7 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Wind
 csv = "1.4.0"
 zip = { version = "9.0.4", default-features = false, features = ["deflate"] }
 notify = { version = "8.2.0", default-features = false }
+zstd = "0.14.3"
 
 # https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
