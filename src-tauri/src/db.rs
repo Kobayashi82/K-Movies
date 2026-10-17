@@ -6,8 +6,11 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
 
-const MIGRATIONS: &[&str] =
-    &[include_str!("../migrations/001_init.sql"), include_str!("../migrations/002_file_prefs.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/001_init.sql"),
+    include_str!("../migrations/002_file_prefs.sql"),
+    include_str!("../migrations/003_file_sub_style.sql"),
+];
 
 pub fn open(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path)?;
@@ -321,29 +324,47 @@ pub fn fix_rewatch(conn: &Connection, item_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Pistas y retardos elegidos para un archivo en el reproductor integrado.
+/// Lo que se cambió en el reproductor integrado para un archivo: pistas, retardos y aspecto de los
+/// subtítulos. Los `None` de aspecto siguen a Ajustes generales.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FilePrefs {
     pub aid: Option<String>,
     pub sid: Option<String>,
     pub audio_delay: f64,
     pub sub_delay: f64,
+    pub sub_scale: Option<f64>,
+    pub sub_margin: Option<f64>,
+    pub sub_background: Option<bool>,
 }
 
 pub fn file_prefs(conn: &Connection, file_id: i64) -> Result<Option<FilePrefs>> {
     Ok(conn
-        .query_row("SELECT aid, sid, audio_delay, sub_delay FROM file_prefs WHERE file_id = ?1", [file_id], |r| {
-            Ok(FilePrefs { aid: r.get(0)?, sid: r.get(1)?, audio_delay: r.get(2)?, sub_delay: r.get(3)? })
-        })
+        .query_row(
+            "SELECT aid, sid, audio_delay, sub_delay, sub_scale, sub_margin, sub_background FROM file_prefs WHERE file_id = ?1",
+            [file_id],
+            |r| {
+                Ok(FilePrefs {
+                    aid: r.get(0)?,
+                    sid: r.get(1)?,
+                    audio_delay: r.get(2)?,
+                    sub_delay: r.get(3)?,
+                    sub_scale: r.get(4)?,
+                    sub_margin: r.get(5)?,
+                    sub_background: r.get(6)?,
+                })
+            },
+        )
         .optional()?)
 }
 
 pub fn save_file_prefs(conn: &Connection, file_id: i64, p: &FilePrefs) -> Result<()> {
     conn.execute(
-        "INSERT INTO file_prefs (file_id, aid, sid, audio_delay, sub_delay) VALUES (?1, ?2, ?3, ?4, ?5)
+        "INSERT INTO file_prefs (file_id, aid, sid, audio_delay, sub_delay, sub_scale, sub_margin, sub_background)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
          ON CONFLICT(file_id) DO UPDATE SET aid = excluded.aid, sid = excluded.sid,
-             audio_delay = excluded.audio_delay, sub_delay = excluded.sub_delay",
-        params![file_id, p.aid, p.sid, p.audio_delay, p.sub_delay],
+             audio_delay = excluded.audio_delay, sub_delay = excluded.sub_delay, sub_scale = excluded.sub_scale,
+             sub_margin = excluded.sub_margin, sub_background = excluded.sub_background",
+        params![file_id, p.aid, p.sid, p.audio_delay, p.sub_delay, p.sub_scale, p.sub_margin, p.sub_background],
     )?;
     Ok(())
 }
@@ -395,7 +416,15 @@ mod tests {
         let conn = conn_with_item();
         conn.execute_batch("PRAGMA foreign_keys = ON").unwrap();
         assert_eq!(file_prefs(&conn, 7).unwrap(), None);
-        let mut p = FilePrefs { aid: Some("2".into()), sid: Some("no".into()), audio_delay: 0.15, sub_delay: -0.3 };
+        let mut p = FilePrefs {
+            aid: Some("2".into()),
+            sid: Some("no".into()),
+            audio_delay: 0.15,
+            sub_delay: -0.3,
+            sub_scale: Some(1.25),
+            sub_margin: None,
+            sub_background: Some(false),
+        };
         save_file_prefs(&conn, 7, &p).unwrap();
         assert_eq!(file_prefs(&conn, 7).unwrap(), Some(p.clone()));
         p.sid = Some("3".into());

@@ -19,6 +19,8 @@ async function boot() {
   if (isPlayer) {
     // Fondo transparente: el vídeo lo dibuja mpv debajo de la interfaz.
     document.documentElement.classList.add("player-mode");
+    // Sin el menú del navegador con el botón derecho.
+    document.addEventListener("contextmenu", (e) => e.preventDefault());
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <ErrorBoundary>
         <Player />

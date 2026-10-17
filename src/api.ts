@@ -166,10 +166,12 @@ export interface PlayerState {
   audioDelay: number;
   subDelay: number;
   subScale: number;
-  subPos: number;
+  /** Distancia de los subtítulos al borde inferior, en píxeles de un vídeo de 720 de alto. */
+  subMargin: number;
   subBackground: boolean;
   fullscreen: boolean;
-  pip: boolean;
+  /** Siempre encima de las demás ventanas. */
+  ontop: boolean;
 }
 
 /** Qué hacer si el archivo ya existe en el destino. */
@@ -206,8 +208,10 @@ export const api = {
     set: (name: string, value: string | number | boolean) =>
       invoke<void>("player_set", { name, value: typeof value === "boolean" ? (value ? "yes" : "no") : String(value) }),
     subBackground: (on: boolean) => invoke<void>("player_sub_background", { on }),
+    /** Sube (+) o baja (−) los subtítulos esos puntos de %, para esta película. */
+    subMargin: (percent: number) => invoke<void>("player_sub_margin", { percent }),
     fullscreen: (on: boolean) => invoke<void>("player_fullscreen", { on }),
-    pip: (on: boolean) => invoke<void>("player_pip", { on }),
+    ontop: (on: boolean) => invoke<void>("player_ontop", { on }),
     close: () => invoke<void>("player_close"),
   },
   listHistory: (itemId?: number) => invoke<HistoryEntry[]>("list_history", { itemId }),
@@ -241,6 +245,7 @@ export const onNotice = (cb: (n: Notice) => void): Promise<UnlistenFn> => listen
 
 export const onPlayback = (cb: (p: NowPlaying[]) => void): Promise<UnlistenFn> =>
   listen<NowPlaying[]>("playback", (e) => cb(e.payload));
+
 
 export const onPlayerState = (cb: (p: PlayerState) => void): Promise<UnlistenFn> =>
   listen<PlayerState>("player-state", (e) => cb(e.payload));

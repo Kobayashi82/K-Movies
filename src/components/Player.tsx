@@ -8,7 +8,7 @@ import {
   Minimize,
   Minus,
   Pause,
-  PictureInPicture2,
+  Pin,
   Play,
   Plus,
   RotateCcw,
@@ -17,7 +17,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, onPlayerState, type PlayerState, type Track } from "../api";
 import { displayName, formatClock, formatNumber } from "../util";
@@ -56,28 +56,67 @@ function trackDetail(t: Track, flags: { forced: string; external: string }): str
 const signed = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${formatNumber(Math.abs(v), 2)} s`;
 
 const HIDE_AFTER = 2500;
+/** Píxeles (de un vídeo de 720 de alto) por cada 1 % de altura de los subtítulos. */
+const PX_PER_PERCENT = 7.2;
+/** Por debajo de este tamaño de ventana, controles mínimos (una ventana pequeña flotando). */
+const isCompact = () => window.innerWidth < 560 || window.innerHeight < 320;
 
-function Stepper({ label, value, onMinus, onPlus, onReset }: { label: string; value: string; onMinus: () => void; onPlus: () => void; onReset?: () => void }) {
+/** Botón que repite la acción mientras se mantiene pulsado (para ir de 1 en 1 sin cansarse). */
+function RepeatButton({ onStep, title, children }: { onStep: () => void; title?: string; children: ReactNode }) {
+  const timer = useRef(0);
+  const step = useRef(onStep);
+  step.current = onStep;
+  const stop = () => window.clearTimeout(timer.current);
+  const start = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    step.current();
+    const repeat = (delay: number) => {
+      timer.current = window.setTimeout(() => {
+        step.current();
+        repeat(70);
+      }, delay);
+    };
+    repeat(400);
+  };
+  useEffect(() => stop, []);
+  return (
+    <button className="icon-btn small" onPointerDown={start} onPointerUp={stop} onPointerLeave={stop} title={title}>
+      {children}
+    </button>
+  );
+}
+
+function Stepper(props: {
+  label: string;
+  value: string;
+  onMinus: () => void;
+  onPlus: () => void;
+  onReset?: () => void;
+  minus?: ReactNode;
+  plus?: ReactNode;
+  minusTitle?: string;
+  plusTitle?: string;
+}) {
   const { t } = useTranslation();
   return (
     <div className="pl-stepper">
-      <span>{label}</span>
+      <span>{props.label}</span>
       <div>
-        <button className="icon-btn small" onClick={onMinus}>
-          <Minus size={14} />
+        <RepeatButton onStep={props.onMinus} title={props.minusTitle}>
+          {props.minus ?? <Minus size={14} />}
+        </RepeatButton>
+        <button className="pl-stepper-value" onClick={props.onReset} title={props.onReset ? t("player.reset") : undefined} disabled={!props.onReset}>
+          {props.value}
         </button>
-        <button className="pl-stepper-value" onClick={onReset} title={onReset ? t("player.reset") : undefined} disabled={!onReset}>
-          {value}
-        </button>
-        <button className="icon-btn small" onClick={onPlus}>
-          <Plus size={14} />
-        </button>
+        <RepeatButton onStep={props.onPlus} title={props.plusTitle}>
+          {props.plus ?? <Plus size={14} />}
+        </RepeatButton>
       </div>
     </div>
   );
 }
 
-/** Ventana del reproductor integrado: mpv dibuja el vídeo debajo y esto pone los controles encima. */
+/** El reproductor integrado: mpv dibuja el vídeo debajo y esto pone los controles encima. */
 export function Player() {
   const { t } = useTranslation();
   const [s, setS] = useState<PlayerState | null>(null);
@@ -85,6 +124,7 @@ export function Player() {
   const [panel, setPanel] = useState<"audio" | "subs" | null>(null);
   const [drag, setDrag] = useState<number | null>(null);
   const [hover, setHover] = useState<{ x: number; time: number } | null>(null);
+  const [compact, setCompact] = useState(isCompact);
   const hideTimer = useRef(0);
   const clickTimer = useRef(0);
   const seekTimer = useRef(0);
@@ -93,7 +133,12 @@ export function Player() {
   useEffect(() => {
     void api.player.state().then(setS);
     const sub = onPlayerState(setS);
-    return () => void sub.then((f) => f());
+    const onResize = () => setCompact(isCompact());
+    window.addEventListener("resize", onResize);
+    return () => {
+      void sub.then((f) => f());
+      window.removeEventListener("resize", onResize);
+    };
   }, []);
 
   // Los controles se esconden (y el cursor) tras unos segundos sin mover el ratón, salvo en pausa.
@@ -110,24 +155,22 @@ export function Player() {
 
   // Con los controles a la vista, los subtítulos suben para no quedar debajo de la barra.
   // `sub-margin-y` va en píxeles de un vídeo de 720 de alto, sea cual sea el tamaño real.
-  const ready = s != null;
-  const pipMode = s?.pip ?? false;
+  const margin = s?.subMargin;
   useEffect(() => {
-    if (!ready) return;
+    if (margin == null) return;
     const update = () => {
-      const lift = shown && !pipMode ? (120 * 720) / window.innerHeight : 22;
-      void api.player.set("sub-margin-y", Math.round(lift)).catch(() => {});
+      const lift = shown && !compact ? (120 * 720) / window.innerHeight : 0;
+      void api.player.set("sub-margin-y", Math.round(Math.max(margin, lift))).catch(() => {});
     };
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
-  }, [ready, shown, pipMode]);
+  }, [margin, shown, compact]);
 
   const togglePause = () => s && void api.player.set("pause", !s.paused);
   const seekBy = (sec: number) => void api.player.command("seek", sec, "relative");
   const fullscreen = (on: boolean) => void api.player.fullscreen(on);
-  const pip = (on: boolean) => void api.player.pip(on);
-  // Volumen, tamaño y posición de los subtítulos los guarda el backend cuando mpv confirma el cambio.
+  const close = () => void api.player.close();
   const setVolume = (v: number) => {
     void api.player.set("volume", Math.max(0, Math.min(130, Math.round(v))));
     if (s?.mute) void api.player.set("mute", false);
@@ -148,13 +191,12 @@ export function Player() {
       else if (k === "arrowdown") add("volume", -5);
       else if (k === "m") void api.player.set("mute", !s.mute);
       else if (k === "f" || k === "enter") fullscreen(!s.fullscreen);
-      else if (k === "p") pip(!s.pip);
+      else if (k === "t") void api.player.ontop(!s.ontop);
       else if (k === "z") add("sub-delay", -0.1);
       else if (k === "x") add("sub-delay", 0.1);
       else if (k === "escape") {
         if (panel) setPanel(null);
         else if (s.fullscreen) fullscreen(false);
-        else if (s.pip) pip(false);
       } else return;
       e.preventDefault();
     };
@@ -207,44 +249,49 @@ export function Player() {
   const subs = (s.tracks ?? []).filter((tr) => tr.type === "sub");
   const flags = { forced: t("player.forced"), external: t("player.external") };
   const loading = s.duration == null || s.buffering;
+  // Arrastrando la barra de arriba (o toda la ventana si es pequeña) se mueve la ventana.
+  const dragRegion = s.fullscreen ? {} : { "data-tauri-drag-region": true };
 
-  if (s.pip) {
+  const windowButtons = (
+    <>
+      {!s.fullscreen && (
+        <button className={s.ontop ? "pl-btn active" : "pl-btn"} onClick={() => void api.player.ontop(!s.ontop)} title={t(s.ontop ? "player.ontopOff" : "player.ontop")}>
+          <Pin size={18} fill={s.ontop ? "currentColor" : "none"} />
+        </button>
+      )}
+      <button className="pl-btn" onClick={close} title={t("player.close")}>
+        <X size={20} />
+      </button>
+    </>
+  );
+
+  if (compact) {
     return (
-      <div className={shown ? "player pip" : "player pip idle"} onMouseMove={poke} data-tauri-drag-region>
+      <div className={shown ? "player compact" : "player compact idle"} onMouseMove={poke} {...dragRegion}>
         {loading && <Loader2 className="pl-spinner spin" size={32} />}
-        <div className="pl-pip-actions">
-          <button className="pl-btn" onClick={() => pip(false)} title={t("player.exitPip")}>
-            <PictureInPicture2 size={18} />
-          </button>
-          <button className="pl-btn" onClick={() => void api.player.close()} title={t("player.close")}>
-            <X size={18} />
-          </button>
-        </div>
-        <button className="pl-pip-play" onClick={togglePause} title={t(s.paused ? "player.play" : "player.pause")}>
+        <div className="pl-compact-actions">{windowButtons}</div>
+        <button className="pl-compact-play" onClick={togglePause} title={t(s.paused ? "player.play" : "player.pause")}>
           {s.paused ? <Play size={26} fill="currentColor" strokeWidth={0} /> : <Pause size={26} fill="currentColor" strokeWidth={0} />}
         </button>
-        <div className="pl-pip-progress">
+        <div className="pl-compact-progress">
           <span style={{ width: `${progress * 100}%` }} />
         </div>
       </div>
     );
   }
 
+  const marginPercent = Math.round(s.subMargin / PX_PER_PERCENT);
+
   return (
     <div className={shown ? "player" : "player idle"} onMouseMove={poke}>
       <div className="pl-stage" onClick={onStageClick} onDoubleClick={onStageDouble} />
       {loading && <Loader2 className="pl-spinner spin" size={44} />}
 
-      <div className="pl-top" data-tauri-drag-region>
-        <span className="pl-title" data-tauri-drag-region>
+      <div className="pl-top" {...dragRegion}>
+        <span className="pl-title" {...dragRegion}>
           {s.title}
         </span>
-        <button className="pl-btn" onClick={() => pip(true)} title={t("player.pip")}>
-          <PictureInPicture2 size={18} />
-        </button>
-        <button className="pl-btn" onClick={() => void api.player.close()} title={t("player.close")}>
-          <X size={20} />
-        </button>
+        {windowButtons}
       </div>
 
       {panel && (
@@ -298,40 +345,24 @@ export function Player() {
               <Stepper
                 label={t("player.subSize")}
                 value={`${Math.round(s.subScale * 100)} %`}
-                onMinus={() => s.subScale > 0.55 && add("sub-scale", -0.1)}
-                onPlus={() => s.subScale < 2.95 && add("sub-scale", 0.1)}
-                onReset={Math.abs(s.subScale - 1) > 0.01 ? () => void api.player.set("sub-scale", 1) : undefined}
+                onMinus={() => s.subScale > 0.32 && add("sub-scale", -0.05)}
+                onPlus={() => s.subScale < 2.98 && add("sub-scale", 0.05)}
               />
-              <div className="pl-stepper">
-                <span>{t("player.subPosition")}</span>
-                <div>
-                  <button className="icon-btn small" onClick={() => add("sub-pos", -5)} title={t("player.up")}>
-                    <ChevronUp size={16} />
-                  </button>
-                  <button
-                    className="pl-stepper-value"
-                    onClick={s.subPos !== 100 ? () => void api.player.set("sub-pos", 100) : undefined}
-                    disabled={s.subPos === 100}
-                    title={t("player.reset")}
-                  >
-                    {s.subPos === 100 ? t("player.bottom") : `${Math.round(s.subPos)}`}
-                  </button>
-                  <button className="icon-btn small" onClick={() => add("sub-pos", 5)} title={t("player.down")}>
-                    <ChevronDown size={16} />
-                  </button>
-                </div>
-              </div>
+              <Stepper
+                label={t("player.subHeight")}
+                value={`${marginPercent} %`}
+                onMinus={() => void api.player.subMargin(-1)}
+                onPlus={() => void api.player.subMargin(1)}
+                minus={<ChevronDown size={16} />}
+                plus={<ChevronUp size={16} />}
+                minusTitle={t("player.down")}
+                plusTitle={t("player.up")}
+              />
               <label className="pl-switch">
                 <span>{t("player.subBackground")}</span>
-                <input
-                  type="checkbox"
-                  checked={s.subBackground}
-                  onChange={(e) => {
-                    void api.player.subBackground(e.target.checked);
-                    void api.setSetting("subBackground", String(e.target.checked));
-                  }}
-                />
+                <input type="checkbox" checked={s.subBackground} onChange={(e) => void api.player.subBackground(e.target.checked)} />
               </label>
+              <p className="pl-note">{t("player.perMovie")}</p>
             </>
           )}
         </div>
@@ -389,9 +420,6 @@ export function Player() {
           </button>
           <button className={panel === "subs" ? "pl-btn active" : "pl-btn"} onClick={() => setPanel(panel === "subs" ? null : "subs")} title={t("player.subtitles")}>
             <Captions size={20} />
-          </button>
-          <button className="pl-btn" onClick={() => pip(true)} title={t("player.pip")}>
-            <PictureInPicture2 size={20} />
           </button>
           <button className="pl-btn" onClick={() => fullscreen(!s.fullscreen)} title={t(s.fullscreen ? "player.exitFullscreen" : "player.fullscreen")}>
             {s.fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}

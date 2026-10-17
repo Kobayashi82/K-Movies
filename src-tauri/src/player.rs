@@ -31,20 +31,21 @@ pub struct PlayerState {
     pub audio_delay: f64,
     pub sub_delay: f64,
     pub sub_scale: f64,
-    pub sub_pos: f64,
+    /// Distancia de los subtítulos al borde inferior, en píxeles de un vídeo de 720 de alto.
+    pub sub_margin: f64,
     pub sub_background: bool,
     pub fullscreen: bool,
-    pub pip: bool,
+    /// Siempre encima de las demás ventanas.
+    pub ontop: bool,
 }
 
 #[derive(Default)]
 pub struct Slot {
     mpv: Mutex<Option<Arc<Mpv>>>,
     state: Mutex<PlayerState>,
-    /// Se han cambiado a mano las pistas o los retardos: al cerrar se guardan para ese archivo.
+    /// Se han cambiado a mano pistas, retardos o aspecto de los subtítulos: al cerrar se guardan
+    /// para ese archivo.
     touched: AtomicBool,
-    /// Tamaño y posición de la ventana antes de pasar a imagen en imagen.
-    restore: Mutex<Option<(tauri::PhysicalSize<u32>, tauri::PhysicalPosition<i32>)>>,
 }
 
 fn slot(app: &AppHandle) -> &Slot {
@@ -88,22 +89,81 @@ fn lang_tags(code: &str) -> Option<&'static str> {
     })
 }
 
+/// Aspecto de los subtítulos, de Ajustes generales. Lo que se cambie durante una película (tamaño,
+/// altura, fondo) vale solo para esa sesión.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SubStyle {
+    pub scale: f64,
+    /// Distancia al borde inferior, en % del alto de la imagen.
+    pub height: f64,
+    pub background: bool,
+    /// Opacidad de la caja de fondo, en %.
+    pub back_opacity: f64,
+    pub color: String,
+    /// Vacío = la letra por defecto de mpv (sin serifa del sistema).
+    pub font: String,
+    pub bold: bool,
+    /// Grosor del contorno (con caja de fondo, el relleno de la caja).
+    pub border: f64,
+    pub shadow: f64,
+    pub ass_override: bool,
+}
+
+impl SubStyle {
+    pub fn from_settings(settings: &HashMap<String, String>) -> Self {
+        let num = |k: &str, default: f64, min: f64, max: f64| {
+            settings.get(k).and_then(|v| v.parse::<f64>().ok()).unwrap_or(default).clamp(min, max)
+        };
+        let flag = |k: &str, default: bool| settings.get(k).map_or(default, |v| v == "true");
+        SubStyle {
+            scale: num("subScale", 1.0, 0.3, 3.0),
+            height: num("subHeight", 3.0, 0.0, 40.0),
+            background: flag("subBackground", true),
+            back_opacity: num("subBackOpacity", 65.0, 0.0, 100.0),
+            color: settings.get("subColor").filter(|c| c.len() == 7 && c.starts_with('#')).cloned().unwrap_or("#FFFFFF".into()),
+            font: settings.get("subFont").cloned().unwrap_or_default(),
+            bold: flag("subBold", false),
+            border: num("subBorder", 3.0, 0.0, 8.0),
+            shadow: num("subShadow", 0.0, 0.0, 6.0),
+            ass_override: flag("subAssOverride", false),
+        }
+    }
+
+    /// `sub-margin-y` (píxeles de un vídeo de 720 de alto) para la altura elegida.
+    pub fn margin(&self) -> f64 {
+        self.height * 7.2
+    }
+
+    fn options(&self) -> Vec<(&'static str, String)> {
+        let alpha = (self.back_opacity / 100.0 * 255.0).round() as u8;
+        let mut out = vec![
+            ("sub-scale", format!("{:.2}", self.scale)),
+            ("sub-pos", "100".into()),
+            ("sub-margin-y", format!("{:.0}", self.margin())),
+            // Caja semitransparente detrás del texto (lo que no hace Jellyfin) o el contorno clásico.
+            ("sub-border-style", if self.background { "background-box" } else { "outline-and-shadow" }.into()),
+            ("sub-back-color", format!("#{alpha:02X}000000")),
+            ("sub-color", self.color.clone()),
+            ("sub-bold", if self.bold { "yes" } else { "no" }.into()),
+            ("sub-border-size", format!("{:.1}", self.border)),
+            ("sub-shadow-offset", format!("{:.1}", self.shadow)),
+            // Los ASS traen su propio estilo (karaoke, carteles); solo se impone el nuestro si se pide.
+            ("sub-ass-override", if self.ass_override { "force" } else { "scale" }.into()),
+        ];
+        if !self.font.is_empty() {
+            out.push(("sub-font", self.font.clone()));
+        }
+        out
+    }
+}
+
 /// Idiomas y estilo de los subtítulos según los ajustes. Se aplican sin abortar si alguno falla,
 /// por si la libmpv instalada es de otra versión.
-fn preferences(settings: &HashMap<String, String>, scale: f64, pos: f64, background: bool) -> Vec<(&'static str, String)> {
+fn preferences(settings: &HashMap<String, String>, style: &SubStyle) -> Vec<(&'static str, String)> {
     let get = |k: &str| settings.get(k).map(String::as_str);
-    let mut out: Vec<(&str, String)> = vec![
-        ("sub-scale", format!("{scale:.2}")),
-        ("sub-pos", format!("{pos:.0}")),
-        // Caja semitransparente detrás del texto (lo que no hace Jellyfin) o el contorno clásico.
-        ("sub-border-style", if background { "background-box" } else { "outline-and-shadow" }.into()),
-        ("sub-back-color", "#A6000000".into()),
-        ("sub-color", get("subColor").filter(|c| c.starts_with('#')).unwrap_or("#FFFFFF").into()),
-        // Los ASS traen su propio estilo (karaoke, carteles); solo se impone el nuestro si se pide.
-        ("sub-ass-override", if get("subAssOverride") == Some("true") { "force" } else { "scale" }.into()),
-        // Subtítulos externos con nombre parecido al del vídeo (`Película.es.srt`).
-        ("sub-auto", "fuzzy".into()),
-    ];
+    let mut out = style.options();
+    // Subtítulos externos con nombre parecido al del vídeo (`Película.es.srt`).
+    out.push(("sub-auto", "fuzzy".into()));
     if let Some(tags) = get("audioLang").and_then(lang_tags) {
         out.push(("alang", tags.into()));
     }
@@ -127,10 +187,10 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
         bail!("already_playing");
     }
     let settings = db::settings(&app.state::<AppState>().db())?;
-    let num = |k: &str, default: f64| settings.get(k).and_then(|v| v.parse().ok()).unwrap_or(default);
-    let (scale, pos, volume) = (num("subScale", 1.0), num("subPos", 100.0), num("playerVolume", 100.0));
-    let background = settings.get("subBackground").is_none_or(|v| v == "true");
+    let volume = settings.get("playerVolume").and_then(|v| v.parse::<f64>().ok()).unwrap_or(100.0);
     let file_prefs = db::file_prefs(&app.state::<AppState>().db(), r.file_id)?;
+    let general = SubStyle::from_settings(&settings);
+    let style = general.clone().with_file(file_prefs.as_ref());
 
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html#player".into()))
         .title(&r.title)
@@ -168,7 +228,7 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
             return Err(e);
         }
     };
-    for (k, v) in preferences(&settings, scale, pos, background) {
+    for (k, v) in preferences(&settings, &style) {
         if let Err(e) = mpv.set(k, &v) {
             eprintln!("[player] {e:#}");
         }
@@ -184,7 +244,6 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
         ("audio-delay", Format::Double),
         ("sub-delay", Format::Double),
         ("sub-scale", Format::Double),
-        ("sub-pos", Format::Double),
     ] {
         mpv.observe(name, format)?;
     }
@@ -195,9 +254,9 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
         title: r.title.clone(),
         position: r.start,
         volume,
-        sub_scale: scale,
-        sub_pos: pos,
-        sub_background: background,
+        sub_scale: style.scale,
+        sub_margin: style.margin(),
+        sub_background: style.background,
         ..Default::default()
     };
     with_state(app, |s| *s = fresh);
@@ -214,7 +273,7 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
     });
 
     let tracker = Tracker::begin(app, &r, "K-Movies".into(), true);
-    let session = Session { file_id: r.file_id, prefs: file_prefs, hwnd };
+    let session = Session { file_id: r.file_id, prefs: file_prefs, general, hwnd };
     let app = app.clone();
     std::thread::spawn(move || event_loop(app, mpv, tracker, session));
     Ok(())
@@ -222,9 +281,23 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
 
 struct Session {
     file_id: i64,
-    /// Pistas y retardos que se eligieron la última vez para este archivo.
+    /// Lo que se eligió la última vez para este archivo.
     prefs: Option<db::FilePrefs>,
+    /// Aspecto de los subtítulos de Ajustes: lo que coincida con él no se guarda con el archivo.
+    general: SubStyle,
     hwnd: isize,
+}
+
+impl SubStyle {
+    /// Lo general con lo que se cambió para este archivo por encima.
+    fn with_file(mut self, p: Option<&db::FilePrefs>) -> Self {
+        if let Some(p) = p {
+            self.scale = p.sub_scale.unwrap_or(self.scale);
+            self.height = p.sub_margin.map_or(self.height, |m| m / 7.2);
+            self.background = p.sub_background.unwrap_or(self.background);
+        }
+        self
+    }
 }
 
 /// Recupera las pistas y retardos de la última vez, si esas pistas siguen existiendo.
@@ -241,18 +314,23 @@ fn restore_prefs(mpv: &Mpv, p: &db::FilePrefs) {
     let _ = mpv.set("sub-delay", &p.sub_delay.to_string());
 }
 
-/// Pistas elegidas y retardos ahora mismo, para guardarlos con el archivo.
-fn current_prefs(s: &PlayerState) -> db::FilePrefs {
+/// Pistas, retardos y aspecto de los subtítulos ahora mismo, para guardarlos con el archivo. Del
+/// aspecto solo se guarda lo que difiere de Ajustes (lo demás sigue lo general aunque se cambie).
+fn current_prefs(s: &PlayerState, general: &SubStyle) -> db::FilePrefs {
     let selected = |kind: &str| {
         s.tracks.as_array().and_then(|ts| {
             ts.iter().find(|t| t["type"] == kind && t["selected"] == true).map(|t| t["id"].to_string())
         })
     };
+    let differs = |a: f64, b: f64| (a - b).abs() > 0.001;
     db::FilePrefs {
         aid: selected("audio"),
         sid: Some(selected("sub").unwrap_or_else(|| "no".into())),
         audio_delay: s.audio_delay,
         sub_delay: s.sub_delay,
+        sub_scale: differs(s.sub_scale, general.scale).then_some(s.sub_scale),
+        sub_margin: differs(s.sub_margin, general.margin()).then_some(s.sub_margin),
+        sub_background: (s.sub_background != general.background).then_some(s.sub_background),
     }
 }
 
@@ -323,36 +401,26 @@ fn event_loop(app: AppHandle, mpv: Arc<Mpv>, mut tracker: Tracker, session: Sess
     tracker.finish();
     if slot(&app).touched.swap(false, Ordering::SeqCst) {
         let snapshot = PlayerState { tracks: last_tracks, ..s };
-        if let Err(e) = db::save_file_prefs(&app.state::<AppState>().db(), session.file_id, &current_prefs(&snapshot)) {
+        let prefs = current_prefs(&snapshot, &session.general);
+        if let Err(e) = db::save_file_prefs(&app.state::<AppState>().db(), session.file_id, &prefs) {
             eprintln!("[player] {e:#}");
         }
     }
     // Primero mpv (destruye su ventana de vídeo) y después la nuestra.
     *slot(&app).mpv.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    *slot(&app).restore.lock().unwrap_or_else(|e| e.into_inner()) = None;
     drop(mpv);
     if let Some(w) = app.get_webview_window(LABEL) {
         let _ = w.destroy();
     }
 }
 
-/// Volumen y estilo de los subtítulos se recuerdan para la próxima película.
+/// El volumen se recuerda para la próxima película. Lo demás que se cambie durante la película
+/// (tamaño y altura de los subtítulos, fondo) vale solo para esa sesión: lo general va en Ajustes.
 fn remember(app: &AppHandle, name: &str, value: &Value) {
-    let key = match name {
-        "volume" => "playerVolume",
-        "sub-scale" => "subScale",
-        "sub-pos" => "subPos",
-        _ => return,
-    };
-    if let Value::Double(v) = value {
-        let changed = with_state(app, |s| match name {
-            "volume" => (s.volume - v).abs() > 0.001,
-            "sub-scale" => (s.sub_scale - v).abs() > 0.001,
-            _ => (s.sub_pos - v).abs() > 0.001,
-        });
-        if changed {
-            let _ = db::set_setting(&app.state::<AppState>().db(), key, &format!("{v:.2}"));
-        }
+    if let ("volume", Value::Double(v)) = (name, value)
+        && with_state(app, |s| (s.volume - v).abs() > 0.001)
+    {
+        let _ = db::set_setting(&app.state::<AppState>().db(), "playerVolume", &format!("{v:.0}"));
     }
 }
 
@@ -367,7 +435,6 @@ fn apply(s: &mut PlayerState, name: &str, value: Value) {
         ("audio-delay", Value::Double(v)) => s.audio_delay = v,
         ("sub-delay", Value::Double(v)) => s.sub_delay = v,
         ("sub-scale", Value::Double(v)) => s.sub_scale = v,
-        ("sub-pos", Value::Double(v)) => s.sub_pos = v,
         _ => {}
     }
 }
@@ -392,7 +459,7 @@ fn video_to_back(parent: isize) {
 // Órdenes desde la interfaz
 
 /// Lo que se recuerda por archivo si se cambia a mano.
-const PER_FILE: &[&str] = &["aid", "sid", "audio-delay", "sub-delay"];
+const PER_FILE: &[&str] = &["aid", "sid", "audio-delay", "sub-delay", "sub-scale"];
 
 pub fn command(app: &AppHandle, args: &[String]) -> Result<()> {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -403,8 +470,7 @@ pub fn command(app: &AppHandle, args: &[String]) -> Result<()> {
 }
 
 /// Propiedades que la interfaz puede cambiar (no todas las de mpv).
-const SETTABLE: &[&str] =
-    &["pause", "volume", "mute", "aid", "sid", "audio-delay", "sub-delay", "sub-scale", "sub-pos", "sub-margin-y"];
+const SETTABLE: &[&str] = &["pause", "volume", "mute", "aid", "sid", "audio-delay", "sub-delay", "sub-scale", "sub-margin-y"];
 
 pub fn set(app: &AppHandle, name: &str, value: &str) -> Result<()> {
     if !SETTABLE.contains(&name) {
@@ -416,11 +482,23 @@ pub fn set(app: &AppHandle, name: &str, value: &str) -> Result<()> {
     mpv(app)?.set(name, value)
 }
 
-/// Caja de fondo de los subtítulos sí o no (se guarda como ajuste junto con tamaño y posición).
+/// Caja de fondo de los subtítulos sí o no, para esta película.
 pub fn set_sub_background(app: &AppHandle, on: bool) -> Result<()> {
     let m = mpv(app)?;
     m.set("sub-border-style", if on { "background-box" } else { "outline-and-shadow" })?;
+    slot(app).touched.store(true, Ordering::SeqCst);
     with_state(app, |s| s.sub_background = on);
+    emit_state(app);
+    Ok(())
+}
+
+/// Sube o baja los subtítulos `percent` puntos (de 1 en 1, entre 0 y 40 % del alto), para esta
+/// película. Se suma aquí, sobre el valor real, para que los clics rápidos no se pisen. La interfaz
+/// lo aplica con `sub-margin-y`, porque mientras se ven los controles los sube más.
+pub fn add_sub_margin(app: &AppHandle, percent: f64) -> Result<()> {
+    mpv(app)?;
+    slot(app).touched.store(true, Ordering::SeqCst);
+    with_state(app, |s| s.sub_margin = ((s.sub_margin / 7.2).round() + percent).clamp(0.0, 40.0) * 7.2);
     emit_state(app);
     Ok(())
 }
@@ -442,51 +520,26 @@ pub fn close(app: &AppHandle) {
 
 pub fn set_fullscreen(app: &AppHandle, on: bool) -> Result<()> {
     let Some(w) = app.get_webview_window(LABEL) else { bail!("not_playing") };
-    if on && state(app).pip {
-        set_pip(app, false)?;
-    }
     w.set_fullscreen(on)?;
     with_state(app, |s| s.fullscreen = on);
     emit_state(app);
     Ok(())
 }
 
-/// Imagen en imagen: ventana pequeña, siempre encima, en la esquina inferior derecha.
-pub fn set_pip(app: &AppHandle, on: bool) -> Result<()> {
+/// Siempre encima de las demás ventanas.
+pub fn set_ontop(app: &AppHandle, on: bool) -> Result<()> {
     let Some(w) = app.get_webview_window(LABEL) else { bail!("not_playing") };
-    let restore = &slot(app).restore;
-    if on {
-        if state(app).fullscreen {
-            w.set_fullscreen(false)?;
-        }
-        *restore.lock().unwrap_or_else(|e| e.into_inner()) = Some((w.inner_size()?, w.outer_position()?));
-        let monitor = w.current_monitor()?.or(w.primary_monitor()?);
-        if let Some(m) = monitor {
-            let area = m.work_area();
-            let scale = m.scale_factor();
-            let width = (480.0 * scale) as u32;
-            let height = (270.0 * scale) as u32;
-            let margin = (16.0 * scale) as i32;
-            w.set_size(tauri::PhysicalSize::new(width, height))?;
-            w.set_position(tauri::PhysicalPosition::new(
-                area.position.x + area.size.width as i32 - width as i32 - margin,
-                area.position.y + area.size.height as i32 - height as i32 - margin,
-            ))?;
-        }
-        w.set_always_on_top(true)?;
-    } else {
-        w.set_always_on_top(false)?;
-        if let Some((size, pos)) = restore.lock().unwrap_or_else(|e| e.into_inner()).take() {
-            w.set_size(size)?;
-            w.set_position(pos)?;
-        }
-    }
-    with_state(app, |s| {
-        s.pip = on;
-        s.fullscreen = false;
-    });
+    w.set_always_on_top(on)?;
+    with_state(app, |s| s.ontop = on);
     emit_state(app);
     Ok(())
+}
+
+/// Cerrar K-Movies cierra también la película (y guarda por dónde ibas).
+pub fn on_main_event(app: &AppHandle, event: &WindowEvent) {
+    if let WindowEvent::CloseRequested { .. } = event {
+        close(app);
+    }
 }
 
 #[cfg(test)]
@@ -495,7 +548,42 @@ mod tests {
 
     fn opts(pairs: &[(&str, &str)]) -> HashMap<&'static str, String> {
         let settings: HashMap<String, String> = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-        preferences(&settings, 1.0, 100.0, true).into_iter().collect()
+        preferences(&settings, &SubStyle::from_settings(&settings)).into_iter().collect()
+    }
+
+    #[test]
+    fn default_subtitle_style() {
+        let o = opts(&[]);
+        assert_eq!(o["sub-scale"], "1.00");
+        // 3 % del alto: el margen de siempre de mpv (22 de 720).
+        assert_eq!(o["sub-margin-y"], "22");
+        assert_eq!(o["sub-border-style"], "background-box");
+        assert_eq!(o["sub-back-color"], "#A6000000");
+        assert_eq!(o["sub-bold"], "no");
+        assert!(!o.contains_key("sub-font"));
+    }
+
+    #[test]
+    fn custom_subtitle_style_and_limits() {
+        let o = opts(&[
+            ("subScale", "1.25"),
+            ("subHeight", "10"),
+            ("subBackground", "false"),
+            ("subBackOpacity", "100"),
+            ("subFont", "Verdana"),
+            ("subBold", "true"),
+            ("subBorder", "50"),
+            ("subColor", "#FFD83D"),
+        ]);
+        assert_eq!(o["sub-scale"], "1.25");
+        assert_eq!(o["sub-margin-y"], "72");
+        assert_eq!(o["sub-border-style"], "outline-and-shadow");
+        assert_eq!(o["sub-back-color"], "#FF000000");
+        assert_eq!(o["sub-font"], "Verdana");
+        assert_eq!(o["sub-bold"], "yes");
+        // Valores fuera de rango se recortan.
+        assert_eq!(o["sub-border-size"], "8.0");
+        assert_eq!(o["sub-color"], "#FFD83D");
     }
 
     #[test]
@@ -538,11 +626,30 @@ mod tests {
             ]),
             audio_delay: 0.1,
             sub_delay: -0.2,
+            sub_scale: 1.0,
+            sub_margin: 22.0 * 2.0,
+            sub_background: true,
             ..Default::default()
         };
-        let p = current_prefs(&s);
+        let general = SubStyle::from_settings(&HashMap::new());
+        let p = current_prefs(&s, &general);
         assert_eq!(p.aid.as_deref(), Some("2"));
         assert_eq!(p.sid.as_deref(), Some("no"));
         assert_eq!((p.audio_delay, p.sub_delay), (0.1, -0.2));
+        // Tamaño y fondo como en Ajustes: no se guardan (siguen lo general). La altura sí cambió.
+        assert_eq!(p.sub_scale, None);
+        assert_eq!(p.sub_background, None);
+        assert!(p.sub_margin.is_some_and(|m| (m - 44.0).abs() < 0.001));
+    }
+
+    #[test]
+    fn file_style_goes_over_the_general_one() {
+        let general = SubStyle::from_settings(&HashMap::new());
+        let file = db::FilePrefs { sub_scale: Some(1.5), sub_margin: Some(72.0), ..Default::default() };
+        let style = general.clone().with_file(Some(&file));
+        assert_eq!(style.scale, 1.5);
+        assert!((style.margin() - 72.0).abs() < 0.001);
+        // Lo que no se cambió para el archivo, de Ajustes.
+        assert_eq!(style.background, general.background);
     }
 }

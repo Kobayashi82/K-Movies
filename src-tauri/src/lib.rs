@@ -311,13 +311,18 @@ fn player_sub_background(app: AppHandle, on: bool) -> CmdResult<()> {
 }
 
 #[tauri::command]
+fn player_sub_margin(app: AppHandle, percent: f64) -> CmdResult<()> {
+    player::add_sub_margin(&app, percent).map_err(err)
+}
+
+#[tauri::command]
 async fn player_fullscreen(app: AppHandle, on: bool) -> CmdResult<()> {
     player::set_fullscreen(&app, on).map_err(err)
 }
 
 #[tauri::command]
-async fn player_pip(app: AppHandle, on: bool) -> CmdResult<()> {
-    player::set_pip(&app, on).map_err(err)
+async fn player_ontop(app: AppHandle, on: bool) -> CmdResult<()> {
+    player::set_ontop(&app, on).map_err(err)
 }
 
 #[tauri::command]
@@ -459,6 +464,11 @@ pub fn run() {
                 sessions: playback::Sessions::default(),
                 player: player::Slot::default(),
             });
+            // Cerrar K-Movies cierra también la película (y guarda por dónde ibas).
+            if let Some(main) = app.get_webview_window("main") {
+                let handle = app.handle().clone();
+                main.on_window_event(move |e| player::on_main_event(&handle, e));
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -485,8 +495,9 @@ pub fn run() {
             player_command,
             player_set,
             player_sub_background,
+            player_sub_margin,
             player_fullscreen,
-            player_pip,
+            player_ontop,
             player_close,
             validate_tmdb_key,
             search_tmdb,
