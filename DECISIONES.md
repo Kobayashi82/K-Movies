@@ -62,3 +62,36 @@ Registro de decisiones tomadas durante el desarrollo, como pide `ESPECIFICACION.
 ### Filtros
 - Dentro de una categoría basta con uno de los valores (O); entre categorías, todas (Y). Excepción: los géneros, donde elegir varios exige todos ("Comedia" + "Romance").
 - Las opciones de cada filtro se calculan sobre la pestaña actual sin filtrar, para que no desaparezcan al ir eligiendo.
+
+## Fase 2 (2026-10-17)
+
+### Ficha y reproducción
+- **Tráiler dentro de la app** con el reproductor incrustado de `youtube-nocookie.com`. Comprobado en desarrollo y en el `.exe` final (el riesgo del .md con WebView2 no se ha dado). Queda el botón "Ver en YouTube" por si un vídeo concreto no permite incrustarse.
+- **Fotos del reparto en caché** con un protocolo propio, `kimg` (`http://kimg.localhost/w185/…`): la primera vez se descargan de TMDb y después se sirven desde `cache/tmdb/`. Solo acepta rutas con el formato de TMDb, para que no se pueda leer nada fuera de la caché.
+
+### Identificación manual
+- Buscador de TMDb que también acepta un id de IMDb (`tt…`) o un enlace de TMDb o IMDb.
+- **Identificar la ficha entera**: si la película elegida ya existía en otra ficha, se **fusionan** (archivos, historial, progreso y Pendientes pasan a la existente). Si la ficha era antes otra película, se descartan su póster, fondo y nota antiguos.
+- **Identificar un solo archivo** (botón en cada archivo cuando una ficha tiene varios): sirve para dos películas distintas que se llamaban igual. El archivo pasa a la ficha de la película elegida, o a una nueva.
+- Las identificaciones manuales quedan marcadas (`matched = 2`) y los reescaneos no las tocan: solo se identifican archivos sin ficha o fichas sin coincidencia.
+- Al identificar, se ignora el sufijo de copia " (2)" del nombre de archivo.
+
+### Pendientes y Vistas sin archivo
+- Botón "+" en las pestañas Pendientes y Vistas para añadir películas que no están en disco, desde TMDb.
+- Si aparece en disco una película que estaba en Pendientes, **sale de Pendientes automáticamente** y se avisa (el 4.0 lo preguntaba; aquí se quita y se avisa, porque Pendientes significa "conseguirla"). Si ya la habías visto, se avisa "Ya viste…".
+
+### Importar, copiar, mover y borrar
+- Las transferencias van **de una en una** (varias copias simultáneas al mismo disco son más lentas), con progreso, cancelación y una pila de avisos en la esquina.
+- Al mover dentro del mismo disco se renombra (instantáneo); si no, se copia y se borra el original.
+- Los **subtítulos y `.nfo`** con el mismo nombre viajan con el vídeo y se renombran igual que él.
+- Copia temporal `*.kmpart` que se renombra al terminar: una copia cortada nunca deja un vídeo a medias con el nombre bueno.
+- **Nombre repetido en el destino**: se pregunta *Guardar los dos* (el nuevo pasa a "Nombre (2).ext"), *Reemplazar* (el anterior va a la papelera) o *Cancelar*. Nunca se sobrescribe sin preguntar.
+- Mover o copiar un archivo de la biblioteca **conserva su película** (aunque se identificara a mano): se actualiza la base de datos en vez de reidentificar.
+- "Borrar el original al importar" activado por defecto, como lo tenías en el 4.0 (`Delete_Imported = True`).
+- **Borrar** manda el vídeo y sus subtítulos a la **papelera de reciclaje** (crate `trash`), nunca borrado directo.
+- Arrastrar vídeos a la ventana los importa.
+
+### Interfaz
+- Confirmaciones con un **diálogo propio** con el estilo de la app, en lugar de los diálogos nativos de Windows.
+- Opciones de las tarjetas: nota en el póster (IMDb, TMDb, ambas o ninguna), título visible u oculto, y año antes o después del título (en la misma fila) u oculto.
+- `KMOVIES_DATA_DIR` permite arrancar la app con otra carpeta de datos (para probar sin tocar la biblioteca real).

@@ -1,17 +1,20 @@
 mod db;
+mod images;
 mod imdb;
 mod library;
 mod parse;
 mod players;
 mod scanner;
 mod tmdb;
+mod transfers;
 
+use regex::Regex;
 use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{LazyLock, Mutex, MutexGuard};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 pub struct AppState {
@@ -20,6 +23,7 @@ pub struct AppState {
     cache_dir: PathBuf,
     http: reqwest::Client,
     scanning: AtomicBool,
+    transfers: transfers::Transfers,
 }
 
 impl AppState {
@@ -32,6 +36,30 @@ type CmdResult<T> = Result<T, String>;
 
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
+}
+
+/// Lanza un escaneo en segundo plano si no hay otro en marcha. Devuelve `false` si ya había uno.
+pub fn spawn_scan(app: &AppHandle) -> bool {
+    spawn_job(app, |app| async move { library::scan(app).await })
+}
+
+fn spawn_job<F, Fut>(app: &AppHandle, job: F) -> bool
+where
+    F: FnOnce(AppHandle) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = anyhow::Result<()>> + Send,
+{
+    if app.state::<AppState>().scanning.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = job(app.clone()).await {
+            eprintln!("[job] {e:#}");
+            library::emit(&app, "error", 0, 0, Some(e.to_string()));
+        }
+        app.state::<AppState>().scanning.store(false, Ordering::SeqCst);
+    });
+    true
 }
 
 #[derive(Serialize)]
@@ -85,21 +113,13 @@ fn remove_library(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<
 }
 
 #[tauri::command]
-fn start_scan(app: AppHandle, state: State<AppState>) -> bool {
-    if state.scanning.swap(true, Ordering::SeqCst) {
-        return false;
-    }
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = library::scan(app.clone()).await {
-            eprintln!("[scan] {e:#}");
-            let _ = app.emit(
-                "scan-progress",
-                library::Progress { phase: "error", current: 0, total: 0, message: Some(e.to_string()) },
-            );
-        }
-        app.state::<AppState>().scanning.store(false, Ordering::SeqCst);
-    });
-    true
+fn start_scan(app: AppHandle) -> bool {
+    spawn_scan(&app)
+}
+
+#[tauri::command]
+fn refresh_all(app: AppHandle) -> bool {
+    spawn_job(&app, |app| async move { library::refresh_all(app).await })
 }
 
 #[tauri::command]
@@ -114,13 +134,13 @@ fn get_item(state: State<AppState>, id: i64) -> CmdResult<db::ItemDetail> {
 
 #[tauri::command]
 fn set_watchlist(app: AppHandle, state: State<AppState>, id: i64, value: bool) -> CmdResult<()> {
-    state
-        .db()
-        .execute(
-            "UPDATE items SET watchlist = ?2, watchlist_at = CASE WHEN ?2 THEN datetime('now') END WHERE id = ?1",
-            rusqlite::params![id, value],
-        )
-        .map_err(err)?;
+    let conn = state.db();
+    conn.execute(
+        "UPDATE items SET watchlist = ?2, watchlist_at = CASE WHEN ?2 THEN datetime('now') END WHERE id = ?1",
+        rusqlite::params![id, value],
+    )
+    .map_err(err)?;
+    db::prune_orphans(&conn).map_err(err)?;
     let _ = app.emit("library-changed", ());
     Ok(())
 }
@@ -139,6 +159,7 @@ fn set_watched(app: AppHandle, state: State<AppState>, id: i64, value: bool) -> 
         conn.execute("DELETE FROM history WHERE item_id = ?1", [id])
     }
     .map_err(err)?;
+    db::prune_orphans(&conn).map_err(err)?;
     let _ = app.emit("library-changed", ());
     Ok(())
 }
@@ -151,6 +172,45 @@ async fn validate_tmdb_key(state: State<'_, AppState>, key: String) -> CmdResult
         Err(e) if e.to_string() == "tmdb_unauthorized" => Ok(false),
         Err(e) => Err(err(e)),
     }
+}
+
+static IMDB_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\btt\d{7,9}\b").unwrap());
+static TMDB_URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"themoviedb\.org/movie/(\d+)").unwrap());
+
+/// Busca en TMDb. También acepta un id de IMDb (`tt0133093`) o un enlace de TMDb o IMDb.
+#[tauri::command]
+async fn search_tmdb(app: AppHandle, query: String, year: Option<i32>) -> CmdResult<Vec<tmdb::Candidate>> {
+    let (client, language) = library::client(&app).map_err(err)?;
+    if let Some(m) = IMDB_ID.find(&query) {
+        return match client.find_by_imdb(m.as_str()).await.map_err(err)? {
+            Some(id) => Ok(vec![client.candidate_by_id(id, &language).await.map_err(err)?]),
+            None => Ok(vec![]),
+        };
+    }
+    if let Some(id) = TMDB_URL.captures(&query).and_then(|c| c[1].parse().ok()) {
+        return Ok(vec![client.candidate_by_id(id, &language).await.map_err(err)?]);
+    }
+    client.search(query.trim(), year, &language).await.map_err(err)
+}
+
+#[tauri::command]
+async fn identify_item(app: AppHandle, id: i64, tmdb_id: i64) -> CmdResult<i64> {
+    library::identify(&app, id, tmdb_id).await.map_err(err)
+}
+
+#[tauri::command]
+async fn identify_file(app: AppHandle, file_id: i64, tmdb_id: i64) -> CmdResult<i64> {
+    library::identify_file(&app, file_id, tmdb_id).await.map_err(err)
+}
+
+#[tauri::command]
+async fn add_item(app: AppHandle, tmdb_id: i64, list: String) -> CmdResult<i64> {
+    library::add(&app, tmdb_id, &list).await.map_err(err)
+}
+
+#[tauri::command]
+async fn refresh_item(app: AppHandle, id: i64) -> CmdResult<()> {
+    library::refresh(&app, id).await.map_err(err)
 }
 
 #[tauri::command]
@@ -179,6 +239,88 @@ fn play_item(state: State<AppState>, id: i64) -> CmdResult<()> {
     }
 }
 
+fn file_path(state: &AppState, file_id: i64) -> CmdResult<PathBuf> {
+    state
+        .db()
+        .query_row("SELECT path FROM files WHERE id = ?1", [file_id], |r| r.get::<_, String>(0))
+        .map(PathBuf::from)
+        .map_err(err)
+}
+
+/// Copia (o mueve, según el ajuste) vídeos a una carpeta de la biblioteca, como el "Import" del 4.0.
+#[tauri::command]
+fn import_files(
+    app: AppHandle,
+    state: State<AppState>,
+    paths: Vec<String>,
+    library_id: i64,
+    conflict: Option<transfers::Conflict>,
+) -> CmdResult<()> {
+    let (root, delete_original) = {
+        let conn = state.db();
+        let root: String =
+            conn.query_row("SELECT path FROM libraries WHERE id = ?1", [library_id], |r| r.get(0)).map_err(err)?;
+        let delete = db::setting(&conn, "importDeleteOriginal").map_err(err)?.is_none_or(|v| v == "true");
+        (root, delete)
+    };
+    for path in paths {
+        transfers::enqueue(
+            &app,
+            transfers::Kind::Import,
+            PathBuf::from(path),
+            Path::new(&root),
+            None,
+            delete_original,
+            conflict.unwrap_or_default(),
+        )
+            .map_err(err)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn transfer_file(
+    app: AppHandle,
+    state: State<AppState>,
+    file_id: i64,
+    dest_dir: String,
+    mode: String,
+    conflict: Option<transfers::Conflict>,
+) -> CmdResult<()> {
+    let source = file_path(&state, file_id)?;
+    let kind = if mode == "move" { transfers::Kind::Move } else { transfers::Kind::Copy };
+    transfers::enqueue(&app, kind, source, Path::new(&dest_dir), Some(file_id), false, conflict.unwrap_or_default()).map_err(err)
+}
+
+#[tauri::command]
+fn list_transfers(app: AppHandle) -> Vec<transfers::TransferInfo> {
+    transfers::list(&app)
+}
+
+#[tauri::command]
+fn cancel_transfer(app: AppHandle, id: u64) {
+    transfers::cancel(&app, id)
+}
+
+#[tauri::command]
+fn dismiss_transfers(app: AppHandle, id: Option<u64>) {
+    transfers::dismiss(&app, id)
+}
+
+/// Manda el archivo a la papelera y lo quita de la biblioteca.
+#[tauri::command]
+fn delete_file(app: AppHandle, state: State<AppState>, file_id: i64) -> CmdResult<()> {
+    let path = file_path(&state, file_id)?;
+    if path.exists() {
+        transfers::delete_to_trash(&path).map_err(err)?;
+    }
+    let conn = state.db();
+    conn.execute("DELETE FROM files WHERE id = ?1", [file_id]).map_err(err)?;
+    db::prune_orphans(&conn).map_err(err)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
 /// Idiomas extra que el usuario deja en `<datos>/locales/*.json` (sin recompilar la app).
 #[tauri::command]
 fn user_locales(state: State<AppState>) -> HashMap<String, serde_json::Value> {
@@ -201,18 +343,34 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .register_asynchronous_uri_scheme_protocol("kimg", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            tauri::async_runtime::spawn(async move { responder.respond(images::handle(app, request).await) });
+        })
         .setup(|app| {
-            let data_dir = app.path().app_local_data_dir()?;
+            // KMOVIES_DATA_DIR permite usar otra carpeta de datos (pruebas sin tocar la biblioteca real).
+            let data_dir = match std::env::var_os("KMOVIES_DATA_DIR") {
+                Some(dir) => PathBuf::from(dir),
+                None => app.path().app_local_data_dir()?,
+            };
             let cache_dir = data_dir.join("cache");
             for dir in ["posters", "backdrops"] {
                 std::fs::create_dir_all(cache_dir.join(dir))?;
             }
+            app.asset_protocol_scope().allow_directory(&cache_dir, true)?;
             let conn = db::open(&data_dir.join("kmovies.db"))?;
             let http = reqwest::Client::builder()
                 .user_agent(concat!("K-Movies/", env!("CARGO_PKG_VERSION")))
                 .timeout(std::time::Duration::from_secs(30))
                 .build()?;
-            app.manage(AppState { db: Mutex::new(conn), data_dir, cache_dir, http, scanning: AtomicBool::new(false) });
+            app.manage(AppState {
+                db: Mutex::new(conn),
+                data_dir,
+                cache_dir,
+                http,
+                scanning: AtomicBool::new(false),
+                transfers: transfers::Transfers::default(),
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -223,13 +381,25 @@ pub fn run() {
             add_library,
             remove_library,
             start_scan,
+            refresh_all,
             list_items,
             get_item,
             set_watchlist,
             set_watched,
             validate_tmdb_key,
+            search_tmdb,
+            identify_item,
+            identify_file,
+            add_item,
+            refresh_item,
             detect_players,
             play_item,
+            import_files,
+            transfer_file,
+            list_transfers,
+            cancel_transfer,
+            dismiss_transfers,
+            delete_file,
             user_locales,
         ])
         .run(tauri::generate_context!())

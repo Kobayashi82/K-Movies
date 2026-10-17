@@ -15,6 +15,8 @@ static IMDB_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\btt\d{7,9}\b").
 static BRACKET_YEAR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\[(]((?:19|20)\d{2})[\])]").unwrap());
 static BRACKETS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[[^\]]*\]|\{[^}]*\}").unwrap());
 static EMPTY_PARENS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\(\s*\)").unwrap());
+// Sufijo de copia que ponen Windows o K-Movies al repetir un nombre: "Patata (2)".
+static COPY_SUFFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*\(\d{1,2}\)\s*$").unwrap());
 static YEAR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b((?:19|20)\d{2})\b").unwrap());
 // Solo palabras inequívocamente técnicas: "Web", "Dual" o "Limited" pueden ser parte de un título.
 static JUNK: LazyLock<Regex> = LazyLock::new(|| {
@@ -36,7 +38,8 @@ static GENERIC: LazyLock<Regex> =
 /// Analiza un nombre sin extensión (p. ej. `Blade.Runner.2049.2017.1080p.BluRay`).
 pub fn parse_name(name: &str) -> Parsed {
     let imdb_id = IMDB_ID.find(name).map(|m| m.as_str().to_string());
-    let mut s = IMDB_ID.replace_all(name, " ").into_owned();
+    let mut s = COPY_SUFFIX.replace(name, "").into_owned();
+    s = IMDB_ID.replace_all(&s, " ").into_owned();
     s = BRACKET_YEAR.replace_all(&s, " $1 ").into_owned();
     s = BRACKETS.replace_all(&s, " ").into_owned();
     s = EMPTY_PARENS.replace_all(&s, " ").into_owned();
@@ -135,6 +138,9 @@ mod tests {
         assert_eq!(p("Charlotte's Web"), ("Charlotte's Web".into(), None));
         assert_eq!(p("Back.to.the.Future.1985.REMASTERED.1080p"), ("Back to the Future".into(), Some(1985)));
         assert_eq!(p("Ocean's Eleven 2001 DD5.1"), ("Ocean's Eleven".into(), Some(2001)));
+        assert_eq!(p("Patata (2)"), ("Patata".into(), None));
+        assert_eq!(p("Inception (2010) (3)"), ("Inception".into(), Some(2010)));
+        assert_eq!(p("Inception (2010) (3)"), ("Inception".into(), Some(2010)));
     }
 
     #[test]

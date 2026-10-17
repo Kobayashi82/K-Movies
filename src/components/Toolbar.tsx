@@ -1,8 +1,9 @@
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, RefreshCw, Search, Settings, Shuffle, SlidersHorizontal, X } from "lucide-react";
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, Download, Plus, RefreshCw, Search, Settings, Shuffle, SlidersHorizontal, X } from "lucide-react";
 import { motion } from "motion/react";
 import { forwardRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
+import { pickAndImport } from "../actions";
 import { api } from "../api";
 import { activeFilterCount, defaultDesc, SORT_KEYS, type SortKey, type View } from "../filters";
 import { useViewCounts, useVisibleItems } from "../hooks";
@@ -112,6 +113,19 @@ export const Toolbar = forwardRef<HTMLInputElement>(function Toolbar(_, searchRe
       </label>
 
       <div className="toolbar-group">
+        {s.view === "library" ? (
+          <button className="icon-btn" onClick={() => void pickAndImport()} disabled={!s.hasLibraries} title={t("toolbar.import")}>
+            <Download size={18} />
+          </button>
+        ) : (
+          <button
+            className="icon-btn"
+            onClick={() => actions.openDialog({ kind: "search", mode: s.view === "pending" ? "pending" : "watched", query: s.query })}
+            title={t(`toolbar.add_${s.view}`)}
+          >
+            <Plus size={20} />
+          </button>
+        )}
         <button
           className={s.filtersOpen ? "icon-btn active" : "icon-btn"}
           onClick={actions.toggleFilters}

@@ -1,8 +1,31 @@
 import { create } from "zustand";
-import { api, type AppInfo, type Item, type Library, type ScanProgress } from "./api";
+import { api, type AppInfo, type Item, type Library, type Notice, type ScanProgress, type TransferInfo } from "./api";
 import { emptyFilters, type Filters, type SortKey, type View, SORT_KEYS } from "./filters";
 
 export type ThemeSetting = "system" | "dark" | "light";
+
+/** Diálogos que se abren encima de todo. */
+export type Dialog =
+  | {
+      kind: "search";
+      mode: "identify" | "pending" | "watched";
+      itemId?: number;
+      /** Identificar solo este archivo (no toda la ficha). */
+      fileId?: number;
+      query: string;
+      year?: number | null;
+    }
+  | { kind: "import"; paths: string[] };
+
+export type ToastNotice = Notice & { id: number };
+
+/** Pregunta con el estilo de la app (sustituye a los diálogos nativos de Windows). */
+export interface Choice {
+  title: string;
+  message: string;
+  options: { value: string; label: string; kind?: "primary" | "danger" }[];
+  resolve: (value: string | null) => void;
+}
 
 interface State {
   ready: boolean;
@@ -24,6 +47,11 @@ interface State {
   settingsOpen: boolean;
   scan: ScanProgress | null;
   scanError: string | null;
+  dialog: Dialog | null;
+  trailer: string | null;
+  choice: Choice | null;
+  transfers: TransferInfo[];
+  notices: ToastNotice[];
 
   init: () => Promise<void>;
   refreshItems: () => Promise<void>;
@@ -40,7 +68,14 @@ interface State {
   select: (id: number | null) => void;
   openSettings: (open: boolean) => void;
   setScan: (p: ScanProgress | null) => void;
+  openDialog: (dialog: Dialog | null) => void;
+  setTrailer: (key: string | null) => void;
+  setTransfers: (t: TransferInfo[]) => void;
+  pushNotice: (n: Notice) => void;
+  dropNotice: (id: number) => void;
 }
+
+let noticeId = 0;
 
 export const GRID_MIN = 110;
 export const GRID_MAX = 340;
@@ -73,6 +108,11 @@ export const useStore = create<State>((set, get) => ({
   settingsOpen: false,
   scan: null,
   scanError: null,
+  dialog: null,
+  trailer: null,
+  choice: null,
+  transfers: [],
+  notices: [],
 
   init: async () => {
     const [info, settings, items, libraries] = await Promise.all([
@@ -137,4 +177,13 @@ export const useStore = create<State>((set, get) => ({
     const fresh = p.phase === "scanning" && p.current === 0;
     set({ scan: p, scanError: fresh ? null : get().scanError });
   },
+  openDialog: (dialog) => set({ dialog }),
+  setTrailer: (trailer) => set({ trailer }),
+  setTransfers: (transfers) => set({ transfers }),
+  pushNotice: (n) => {
+    const id = ++noticeId;
+    set({ notices: [...get().notices.slice(-3), { ...n, id }] });
+    window.setTimeout(() => get().dropNotice(id), 8000);
+  },
+  dropNotice: (id) => set({ notices: get().notices.filter((n) => n.id !== id) }),
 }));

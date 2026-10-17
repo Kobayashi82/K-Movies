@@ -1,6 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Check, Eye, EyeOff, FolderPlus, Loader2, Trash2, X } from "lucide-react";
+import { Check, Eye, EyeOff, FolderPlus, Loader2, RefreshCw, Trash2, X } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -29,6 +29,7 @@ export function Settings() {
   const settings = useStore((s) => s.settings);
   const libraries = useStore((s) => s.libraries);
   const info = useStore((s) => s.info);
+  const busy = useStore((s) => s.scan != null);
   const { setSetting, refreshLibraries, openSettings } = useStore.getState();
 
   const [key, setKey] = useState(settings.tmdbKey ?? "");
@@ -124,6 +125,15 @@ export function Settings() {
               <FolderPlus size={18} />
               {t("settings.addFolder")}
             </button>
+            <label className="check settings-check">
+              <input
+                type="checkbox"
+                checked={(settings.importDeleteOriginal ?? "true") === "true"}
+                onChange={(e) => setSetting("importDeleteOriginal", String(e.target.checked))}
+              />
+              {t("settings.importDeleteOriginal")}
+            </label>
+            <p className="hint">{t("settings.importHint")}</p>
           </Section>
 
           <Section title={t("settings.tmdb")}>
@@ -170,6 +180,10 @@ export function Settings() {
               </select>
             </label>
             <p className="hint">{t("settings.metadataLanguageHint")}</p>
+            <button className="btn" onClick={() => void api.refreshAll()} disabled={busy || !settings.tmdbKey}>
+              <RefreshCw size={16} className={busy ? "spin" : undefined} />
+              {t("settings.refreshAll")}
+            </button>
           </Section>
 
           <Section title={t("settings.player")}>
@@ -216,6 +230,34 @@ export function Settings() {
                 {(["system", "dark", "light"] as const).map((th) => (
                   <button key={th} className={theme === th ? "active" : undefined} onClick={() => setSetting("theme", th)}>
                     {t(`settings.theme_${th}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="field">
+              <span>{t("settings.posterRating")}</span>
+              <div className="segmented">
+                {(["imdb", "tmdb", "both", "none"] as const).map((r) => (
+                  <button key={r} className={(settings.posterRating ?? "imdb") === r ? "active" : undefined} onClick={() => setSetting("posterRating", r)}>
+                    {t(`settings.posterRating_${r}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="check settings-check">
+              <input type="checkbox" checked={settings.posterTitle !== "false"} onChange={(e) => setSetting("posterTitle", String(e.target.checked))} />
+              {t("settings.posterTitle")}
+            </label>
+            <div className="field">
+              <span>{t("settings.posterYear")}</span>
+              <div className="segmented">
+                {(["before", "after", "none"] as const).map((y) => (
+                  <button
+                    key={y}
+                    className={(["before", "none"].includes(settings.posterYear) ? settings.posterYear : "after") === y ? "active" : undefined}
+                    onClick={() => setSetting("posterYear", y)}
+                  >
+                    {t(`settings.posterYear_${y}`)}
                   </button>
                 ))}
               </div>

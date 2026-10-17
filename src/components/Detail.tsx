@@ -1,8 +1,26 @@
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { Bookmark, BookmarkCheck, Check, Clapperboard, ExternalLink, FolderOpen, Play, Star, X } from "lucide-react";
+import {
+  ArrowRightLeft,
+  Bookmark,
+  BookmarkCheck,
+  Check,
+  Clapperboard,
+  Copy,
+  ExternalLink,
+  FolderOpen,
+  Play,
+  RefreshCw,
+  SearchCheck,
+  Star,
+  Trash2,
+  TriangleAlert,
+  Unlink,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, fileUrl, parseDbDate, tmdbImage, type Item, type ItemDetail } from "../api";
+import { deleteFile, errorText, transferFile } from "../actions";
+import { api, cachedTmdbImage, fileUrl, parseDbDate, type Item, type ItemDetail } from "../api";
 import { useStore } from "../store";
 import { displayName, formatDate, formatNumber, formatRuntime, formatSize, heroTransition } from "../util";
 import { PosterImage } from "./PosterCard";
@@ -11,15 +29,17 @@ export function Detail({ item }: { item: Item }) {
   const { t } = useTranslation();
   const [detail, setDetail] = useState<ItemDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const { openDialog, setTrailer } = useStore.getState();
 
+  // Se recarga también cuando cambia la ficha (p. ej. tras actualizar la información).
   useEffect(() => {
     let alive = true;
-    setDetail(null);
     api.getItem(item.id).then((d) => alive && setDetail(d), console.error);
     return () => {
       alive = false;
     };
-  }, [item.id]);
+  }, [item]);
 
   const close = () => {
     const card = document.querySelector<HTMLElement>(`[data-poster-id="${item.id}"]`);
@@ -32,14 +52,23 @@ export function Detail({ item }: { item: Item }) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const play = async () => {
+  const run = async (action: () => Promise<unknown>) => {
     setError(null);
     try {
-      await api.playItem(item.id);
+      await action();
     } catch (e) {
-      setError(String(e) === "file_missing" ? t("detail.fileMissing") : String(e));
+      setError(errorText(String(e)));
     }
   };
+
+  const refresh = async () => {
+    setRefreshing(true);
+    await run(() => api.refreshItem(item.id));
+    setRefreshing(false);
+  };
+
+  const identify = () =>
+    openDialog({ kind: "search", mode: "identify", itemId: item.id, query: item.title, year: item.matched === 0 ? item.year : null });
 
   const directors = detail?.people.filter((p) => p.role === "director") ?? [];
   const cast = detail?.people.filter((p) => p.role === "cast") ?? [];
@@ -50,7 +79,7 @@ export function Detail({ item }: { item: Item }) {
   return (
     <div className="detail" role="dialog" aria-modal="true" aria-label={item.title}>
       <div className="detail-backdrop">
-        {backdrop && <img src={backdrop} alt="" />}
+        {backdrop && <img key={backdrop} src={backdrop} alt="" />}
         <div className="detail-shade" />
       </div>
       <button className="detail-close icon-btn" onClick={close} title={t("common.close")}>
@@ -58,6 +87,16 @@ export function Detail({ item }: { item: Item }) {
       </button>
 
       <div className="detail-scroll">
+        {item.matched === 0 && (
+          <div className="detail-banner">
+            <TriangleAlert size={18} />
+            <span>{t("detail.unmatched")}</span>
+            <button className="btn small primary" onClick={identify}>
+              {t("detail.identify")}
+            </button>
+          </div>
+        )}
+
         <div className="detail-main">
           <div className="detail-poster">
             <PosterImage item={item} eager />
@@ -100,25 +139,35 @@ export function Detail({ item }: { item: Item }) {
 
             <div className="detail-actions">
               {item.fileCount > 0 && (
-                <button className="btn primary" onClick={() => void play()}>
+                <button className="btn primary" onClick={() => void run(() => api.playItem(item.id))}>
                   <Play size={18} fill="currentColor" strokeWidth={0} />
                   {t("detail.play")}
                 </button>
               )}
               {detail?.trailerKey && (
-                <button className="btn" onClick={() => void openUrl(`https://www.youtube.com/watch?v=${detail.trailerKey}`)}>
+                <button className="btn" onClick={() => setTrailer(detail.trailerKey)}>
                   <Clapperboard size={18} />
                   {t("detail.trailer")}
                 </button>
               )}
-              <button className={watched ? "btn toggled" : "btn"} onClick={() => void api.setWatched(item.id, !watched)}>
+              <button className={watched ? "btn toggled" : "btn"} onClick={() => void run(() => api.setWatched(item.id, !watched))}>
                 <Check size={18} />
                 {watched ? t("detail.watched") : t("detail.markWatched")}
               </button>
-              <button className={item.watchlist ? "btn toggled" : "btn"} onClick={() => void api.setWatchlist(item.id, !item.watchlist)}>
+              <button className={item.watchlist ? "btn toggled" : "btn"} onClick={() => void run(() => api.setWatchlist(item.id, !item.watchlist))}>
                 {item.watchlist ? <BookmarkCheck size={18} /> : <Bookmark size={18} />}
                 {item.watchlist ? t("detail.inPending") : t("detail.addPending")}
               </button>
+              <div className="detail-secondary">
+                <button className="icon-btn" onClick={identify} title={t("detail.fixMatch")}>
+                  <SearchCheck size={19} />
+                </button>
+                {item.tmdbId && (
+                  <button className="icon-btn" onClick={() => void refresh()} disabled={refreshing} title={t("detail.refresh")}>
+                    <RefreshCw size={18} className={refreshing ? "spin" : undefined} />
+                  </button>
+                )}
+              </div>
             </div>
             {error && <div className="detail-error">{error}</div>}
 
@@ -167,7 +216,7 @@ export function Detail({ item }: { item: Item }) {
               {cast.map((p) => (
                 <div key={p.id} className="cast-card">
                   <div className="cast-photo">
-                    {p.profileUrl ? <img src={tmdbImage(p.profileUrl)!} alt="" loading="lazy" /> : <span>{p.name[0]}</span>}
+                    {p.profileUrl ? <img src={cachedTmdbImage(p.profileUrl)!} alt="" loading="lazy" /> : <span>{p.name[0]}</span>}
                   </div>
                   <strong>{p.name}</strong>
                   {p.character && <small>{p.character}</small>}
@@ -183,16 +232,45 @@ export function Detail({ item }: { item: Item }) {
             <ul className="file-list">
               {detail.files.map((f) => (
                 <li key={f.id}>
-                  <button className="file-path" onClick={() => void revealItemInDir(f.path)} title={t("detail.showInFolder")}>
-                    {f.path}
+                  <button className="file-path" onClick={() => void revealItemInDir(f.path)} title={f.path}>
+                    <span className="file-name">{f.path.split(/[\\/]/).pop()}</span>
+                    <span className="file-dir">{f.path.replace(/[\\/][^\\/]*$/, "")}</span>
                   </button>
                   <span className="file-meta">
                     {formatSize(f.size)}
                     {f.hasSubs && ` · ${t("detail.subtitles")}`}
                   </span>
-                  <button className="icon-btn small" onClick={() => void revealItemInDir(f.path)} title={t("detail.showInFolder")}>
-                    <FolderOpen size={16} />
-                  </button>
+                  <div className="file-actions">
+                    {detail.files.length > 1 && (
+                      <button
+                        className="icon-btn small"
+                        onClick={() =>
+                          openDialog({
+                            kind: "search",
+                            mode: "identify",
+                            itemId: item.id,
+                            fileId: f.id,
+                            query: (f.path.split(/[\\/]/).pop() ?? "").replace(/\.[^.]+$/, ""),
+                          })
+                        }
+                        title={t("detail.otherMovie")}
+                      >
+                        <Unlink size={16} />
+                      </button>
+                    )}
+                    <button className="icon-btn small" onClick={() => void revealItemInDir(f.path)} title={t("detail.showInFolder")}>
+                      <FolderOpen size={16} />
+                    </button>
+                    <button className="icon-btn small" onClick={() => void transferFile(f.id, f.path, "copy")} title={t("detail.copyTo")}>
+                      <Copy size={16} />
+                    </button>
+                    <button className="icon-btn small" onClick={() => void transferFile(f.id, f.path, "move")} title={t("detail.moveTo")}>
+                      <ArrowRightLeft size={16} />
+                    </button>
+                    <button className="icon-btn small danger" onClick={() => void run(() => deleteFile(f.id, f.path))} title={t("detail.delete")}>
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

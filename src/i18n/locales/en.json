@@ -3,7 +3,8 @@
   "common": {
     "close": "Close",
     "error": "Something went wrong",
-    "reload": "Reload"
+    "reload": "Reload",
+    "cancel": "Cancel"
   },
   "window": {
     "minimize": "Minimize",
@@ -26,7 +27,10 @@
     "filters": "Filters",
     "random": "Random movie",
     "rescan": "Rescan library",
-    "settings": "Settings"
+    "settings": "Settings",
+    "import": "Import movies",
+    "add_pending": "Add to Pending",
+    "add_watched": "Add a watched movie"
   },
   "sort": {
     "title": "Title",
@@ -67,7 +71,7 @@
     "count_one": "{{count}} movie",
     "count_other": "{{count}} movies",
     "empty_library": "No movies match these filters.",
-    "empty_pending": "Nothing pending. Add movies you want to get from their detail page.",
+    "empty_pending": "Nothing pending. Add the movies you want to get.",
     "empty_watched": "You haven't marked any movie as watched yet."
   },
   "detail": {
@@ -89,7 +93,16 @@
     "files": "Files",
     "subtitles": "subtitles",
     "showInFolder": "Show in folder",
-    "fileMissing": "The file can't be found. Is the drive connected?"
+    "fileMissing": "The file can't be found. Is the drive connected?",
+    "unmatched": "This movie couldn't be identified automatically.",
+    "identify": "Identify",
+    "fixMatch": "Wrong movie? Fix the identification",
+    "refresh": "Update information",
+    "copyTo": "Copy to…",
+    "moveTo": "Move to…",
+    "delete": "Delete file",
+    "deleteConfirm": "Send \"{{name}}\" and its subtitles to the Recycle Bin?",
+    "otherMovie": "This file is a different movie"
   },
   "settings": {
     "title": "Settings",
@@ -125,7 +138,20 @@
     "theme_light": "Light",
     "about": "About",
     "dataFolder": "Data folder",
-    "attribution": "This product uses the TMDB API but is not endorsed or certified by TMDB. IMDb ratings come from IMDb's public datasets."
+    "attribution": "This product uses the TMDB API but is not endorsed or certified by TMDB. IMDb ratings come from IMDb's public datasets.",
+    "importDeleteOriginal": "Delete the original after importing",
+    "importHint": "Import copies videos (and their subtitles) into your movies folder. You can also drag them onto the window.",
+    "refreshAll": "Update all information",
+    "posterRating": "Rating on posters",
+    "posterRating_imdb": "IMDb",
+    "posterRating_tmdb": "TMDb",
+    "posterRating_none": "None",
+    "posterTitle": "Show the title under the poster",
+    "posterYear": "Year next to the title",
+    "posterRating_both": "Both",
+    "posterYear_before": "Before",
+    "posterYear_after": "After",
+    "posterYear_none": "Hidden"
   },
   "welcome": {
     "title": "Welcome to K-Movies",
@@ -142,10 +168,59 @@
     "matching": "Identifying",
     "ratings": "Updating IMDb ratings…",
     "badKey": "Your TMDb key isn't valid.",
-    "failed": "The scan failed"
+    "failed": "The scan failed",
+    "refreshing": "Updating information"
   },
   "format": {
     "hoursMinutes": "{{h}} h {{m}} min",
     "minutes": "{{m}} min"
+  },
+  "search": {
+    "title_identify": "Identify movie",
+    "title_pending": "Add to Pending",
+    "title_watched": "Add a watched movie",
+    "placeholder": "Title, or an IMDb / TMDb link",
+    "year": "Year",
+    "hint": "Pick the right movie. You can also paste an IMDb id (tt…) or a TMDb or IMDb link.",
+    "noResults": "No results. Try the original title or remove the year."
+  },
+  "trailer": {
+    "openYoutube": "Watch on YouTube"
+  },
+  "import": {
+    "title": "Import movies",
+    "videos": "Videos",
+    "drop": "Drop to import into your library",
+    "where_one": "Where do you want to import it?",
+    "where_other": "Where do you want to import the {{count}} files?"
+  },
+  "transfer": {
+    "import": "Importing",
+    "copy": "Copying",
+    "move": "Moving",
+    "queued": "waiting",
+    "failed": "The file couldn't be transferred",
+    "done_import": "Imported",
+    "done_copy": "Copied",
+    "done_move": "Moved"
+  },
+  "notice": {
+    "pendingAvailable": "\"{{title}}\" is now in your library and was removed from Pending.",
+    "alreadyWatched": "You've already watched \"{{title}}\"."
+  },
+  "errors": {
+    "tmdb_no_key": "Add your TMDb key in Settings first.",
+    "tmdb_unauthorized": "Your TMDb key isn't valid.",
+    "exists": "A file with that name already exists at the destination.",
+    "file_missing": "The file can't be found. Is the drive connected?",
+    "same_folder": "The file is already in that folder.",
+    "not_identified": "This movie hasn't been identified yet.",
+    "cancelled": "Cancelled"
+  },
+  "conflict": {
+    "title": "That name already exists",
+    "message": "There's already a file called \"{{name}}\" at the destination. Is it a different movie? Keep both and the new one will be saved as \"{{renamed}}\".",
+    "rename": "Keep both",
+    "replace": "Replace"
   }
 }

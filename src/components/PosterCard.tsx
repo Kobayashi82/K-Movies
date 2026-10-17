@@ -1,4 +1,4 @@
-import { Check, Play, Star } from "lucide-react";
+import { Check, Play } from "lucide-react";
 import { memo, useState } from "react";
 import { fileUrl, type Item } from "../api";
 import { useStore } from "../store";
@@ -29,7 +29,20 @@ export function PosterImage({ item, eager = false }: { item: Item; eager?: boole
   );
 }
 
-export const PosterCard = memo(function PosterCard({ item }: { item: Item }) {
+
+/** Qué se ve en cada tarjeta (Ajustes → Apariencia). */
+export interface CardDisplay {
+  rating: "imdb" | "tmdb" | "both" | "none";
+  title: boolean;
+  year: "before" | "after" | "none";
+}
+
+export const PosterCard = memo(function PosterCard({ item, display }: { item: Item; display: CardDisplay }) {
+  const ratings = [
+    { source: "imdb", label: "IMDb", value: item.imdbRating },
+    { source: "tmdb", label: "TMDb", value: item.tmdbRating },
+  ].filter((r) => r.value != null && (display.rating === "both" || display.rating === r.source));
+  const year = display.year !== "none" && item.year ? <span className="card-year">{item.year}</span> : null;
   const progress = item.position && item.duration ? item.position / item.duration : 0;
   const open = (e: React.MouseEvent<HTMLButtonElement>) => {
     const poster = e.currentTarget.querySelector<HTMLElement>(".poster");
@@ -45,10 +58,14 @@ export const PosterCard = memo(function PosterCard({ item }: { item: Item }) {
       <div className="poster" data-poster-id={item.id}>
         <PosterImage item={item} />
         <div className="poster-shade" />
-        {item.imdbRating != null && (
-          <span className="rating-badge">
-            <Star size={11} fill="currentColor" strokeWidth={0} />
-            {formatNumber(item.imdbRating)}
+        {ratings.length > 0 && (
+          <span className="rating-badges">
+            {ratings.map((r) => (
+              <span key={r.source} className={`rating-badge ${r.source}`}>
+                <b>{r.label}</b>
+                {formatNumber(r.value)}
+              </span>
+            ))}
           </span>
         )}
         {item.watchCount > 0 && (
@@ -67,15 +84,18 @@ export const PosterCard = memo(function PosterCard({ item }: { item: Item }) {
           </span>
         )}
       </div>
-      <div className="card-info">
-        <span className="card-title" title={item.title}>
-          {item.title}
-        </span>
-        <span className="card-meta">
-          {item.year ?? ""}
+      {(display.title || display.year !== "none") && (
+        <div className="card-info">
+          {display.year === "before" && year}
+          {display.title && (
+            <span className="card-title" title={item.title}>
+              {item.title}
+            </span>
+          )}
+          {display.year === "after" && year}
           {item.matched === 0 && <span className="unmatched-dot" />}
-        </span>
-      </div>
+        </div>
+      )}
     </button>
   );
 });

@@ -3,7 +3,8 @@
   "common": {
     "close": "Cerrar",
     "error": "Algo ha fallado",
-    "reload": "Recargar"
+    "reload": "Recargar",
+    "cancel": "Cancelar"
   },
   "window": {
     "minimize": "Minimizar",
@@ -26,7 +27,10 @@
     "filters": "Filtros",
     "random": "Película al azar",
     "rescan": "Volver a escanear",
-    "settings": "Ajustes"
+    "settings": "Ajustes",
+    "import": "Importar películas",
+    "add_pending": "Añadir a Pendientes",
+    "add_watched": "Añadir una vista"
   },
   "sort": {
     "title": "Título",
@@ -67,7 +71,7 @@
     "count_one": "{{count}} película",
     "count_other": "{{count}} películas",
     "empty_library": "Ninguna película coincide con estos filtros.",
-    "empty_pending": "No hay pendientes. Añade las que quieras conseguir desde su ficha.",
+    "empty_pending": "No hay pendientes. Añade las películas que quieras conseguir.",
     "empty_watched": "Todavía no has marcado ninguna película como vista."
   },
   "detail": {
@@ -89,7 +93,16 @@
     "files": "Archivos",
     "subtitles": "subtítulos",
     "showInFolder": "Mostrar en la carpeta",
-    "fileMissing": "No se encuentra el archivo. ¿Está conectado el disco?"
+    "fileMissing": "No se encuentra el archivo. ¿Está conectado el disco?",
+    "unmatched": "No se ha podido identificar esta película automáticamente.",
+    "identify": "Identificar",
+    "fixMatch": "¿No es esta película? Corregir la identificación",
+    "refresh": "Actualizar información",
+    "copyTo": "Copiar a…",
+    "moveTo": "Mover a…",
+    "delete": "Borrar archivo",
+    "deleteConfirm": "¿Enviar «{{name}}» y sus subtítulos a la papelera de reciclaje?",
+    "otherMovie": "Este archivo es otra película"
   },
   "settings": {
     "title": "Ajustes",
@@ -125,7 +138,20 @@
     "theme_light": "Claro",
     "about": "Acerca de",
     "dataFolder": "Carpeta de datos",
-    "attribution": "Este producto usa la API de TMDB, pero TMDB no lo respalda ni lo certifica. Las notas de IMDb proceden de los datasets públicos de IMDb."
+    "attribution": "Este producto usa la API de TMDB, pero TMDB no lo respalda ni lo certifica. Las notas de IMDb proceden de los datasets públicos de IMDb.",
+    "importDeleteOriginal": "Borrar el original después de importar",
+    "importHint": "Importar copia los vídeos (y sus subtítulos) a tu carpeta de películas. También puedes arrastrarlos a la ventana.",
+    "refreshAll": "Actualizar toda la información",
+    "posterRating": "Nota en los pósters",
+    "posterRating_imdb": "IMDb",
+    "posterRating_tmdb": "TMDb",
+    "posterRating_none": "Ninguna",
+    "posterTitle": "Mostrar el título debajo del póster",
+    "posterYear": "Año junto al título",
+    "posterRating_both": "Ambas",
+    "posterYear_before": "Antes",
+    "posterYear_after": "Después",
+    "posterYear_none": "Oculto"
   },
   "welcome": {
     "title": "Bienvenido a K-Movies",
@@ -142,10 +168,59 @@
     "matching": "Identificando",
     "ratings": "Actualizando notas de IMDb…",
     "badKey": "Tu clave de TMDb no es válida.",
-    "failed": "El escaneo ha fallado"
+    "failed": "El escaneo ha fallado",
+    "refreshing": "Actualizando información"
   },
   "format": {
     "hoursMinutes": "{{h}} h {{m}} min",
     "minutes": "{{m}} min"
+  },
+  "search": {
+    "title_identify": "Identificar película",
+    "title_pending": "Añadir a Pendientes",
+    "title_watched": "Añadir una película vista",
+    "placeholder": "Título, o un enlace de IMDb / TMDb",
+    "year": "Año",
+    "hint": "Elige la película correcta. También puedes pegar un id de IMDb (tt…) o un enlace de TMDb o IMDb.",
+    "noResults": "Sin resultados. Prueba con el título original o quita el año."
+  },
+  "trailer": {
+    "openYoutube": "Ver en YouTube"
+  },
+  "import": {
+    "title": "Importar películas",
+    "videos": "Vídeos",
+    "drop": "Suelta para importar a tu biblioteca",
+    "where_one": "¿Dónde quieres importarlo?",
+    "where_other": "¿Dónde quieres importar los {{count}} archivos?"
+  },
+  "transfer": {
+    "import": "Importando",
+    "copy": "Copiando",
+    "move": "Moviendo",
+    "queued": "en espera",
+    "failed": "No se ha podido transferir el archivo",
+    "done_import": "Importado",
+    "done_copy": "Copiado",
+    "done_move": "Movido"
+  },
+  "notice": {
+    "pendingAvailable": "«{{title}}» ya está en tu biblioteca y sale de Pendientes.",
+    "alreadyWatched": "Ya viste «{{title}}»."
+  },
+  "errors": {
+    "tmdb_no_key": "Primero añade tu clave de TMDb en Ajustes.",
+    "tmdb_unauthorized": "Tu clave de TMDb no es válida.",
+    "exists": "Ya hay un archivo con ese nombre en el destino.",
+    "file_missing": "No se encuentra el archivo. ¿Está conectado el disco?",
+    "same_folder": "El archivo ya está en esa carpeta.",
+    "not_identified": "Esta película aún no está identificada.",
+    "cancelled": "Cancelado"
+  },
+  "conflict": {
+    "title": "Ese nombre ya existe",
+    "message": "Ya hay un archivo llamado «{{name}}» en el destino. ¿Es otra película? Si guardas los dos, el nuevo se llamará «{{renamed}}».",
+    "rename": "Guardar los dos",
+    "replace": "Reemplazar"
   }
 }

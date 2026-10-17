@@ -1,12 +1,13 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { Item } from "../api";
 import { useElementWidth } from "../hooks";
 import { useStore } from "../store";
-import { PosterCard } from "./PosterCard";
+import { PosterCard, type CardDisplay } from "./PosterCard";
 
 const PADDING = 28;
-const INFO_HEIGHT = 52;
+// Alto del texto bajo el póster: separación + una línea (título y año van en la misma).
+const infoHeight = (d: CardDisplay) => (d.title || d.year !== "none" ? 8 + 22 : 0);
 
 /**
  * Rejilla virtualizada por filas: solo existen en el DOM las filas visibles (más unas pocas
@@ -17,12 +18,21 @@ export function Grid({ items }: { items: Item[] }) {
   const width = useElementWidth(scrollRef);
   const gridSize = useStore((s) => s.gridSize);
   const view = useStore((s) => s.view);
+  const settings = useStore((s) => s.settings);
+  const display = useMemo<CardDisplay>(
+    () => ({
+      rating: (["tmdb", "both", "none"] as const).find((r) => r === settings.posterRating) ?? "imdb",
+      title: settings.posterTitle !== "false",
+      year: (["before", "none"] as const).find((y) => y === settings.posterYear) ?? "after",
+    }),
+    [settings.posterRating, settings.posterTitle, settings.posterYear],
+  );
 
   const gap = Math.round(Math.min(28, Math.max(14, gridSize * 0.11)));
   const inner = Math.max(0, width - PADDING * 2);
   const cols = Math.max(1, Math.floor((inner + gap) / (gridSize + gap)));
   const cardWidth = cols > 0 ? (inner - gap * (cols - 1)) / cols : gridSize;
-  const rowHeight = Math.round(cardWidth * 1.5 + INFO_HEIGHT + gap);
+  const rowHeight = Math.round(cardWidth * 1.5 + infoHeight(display) + gap);
   const rows = Math.ceil(items.length / cols);
 
   const virtualizer = useVirtualizer({
@@ -57,7 +67,7 @@ export function Grid({ items }: { items: Item[] }) {
             }}
           >
             {items.slice(row.index * cols, row.index * cols + cols).map((item) => (
-              <PosterCard key={item.id} item={item} />
+              <PosterCard key={item.id} item={item} display={display} />
             ))}
           </div>
         ))}

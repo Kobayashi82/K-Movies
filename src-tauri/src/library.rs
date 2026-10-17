@@ -1,8 +1,9 @@
 //! Escaneo de la biblioteca: recorrer carpetas, identificar con TMDb, cachear imágenes y notas.
+//! También las acciones sueltas sobre fichas: identificar a mano, añadir y actualizar.
 
 use crate::tmdb::{self, Details, Tmdb};
 use crate::{AppState, db, imdb, scanner};
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use futures::StreamExt;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
@@ -16,15 +17,30 @@ use tauri::{AppHandle, Emitter, Manager};
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
-    /// `scanning` | `matching` | `ratings` | `done` | `error`
+    /// `scanning` | `matching` | `refreshing` | `ratings` | `done` | `error`
     pub phase: &'static str,
     pub current: usize,
     pub total: usize,
     pub message: Option<String>,
 }
 
-fn emit(app: &AppHandle, phase: &'static str, current: usize, total: usize, message: Option<String>) {
+pub fn emit(app: &AppHandle, phase: &'static str, current: usize, total: usize, message: Option<String>) {
     let _ = app.emit("scan-progress", Progress { phase, current, total, message });
+}
+
+/// Aviso para el usuario (se muestra como notificación en la interfaz).
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Notice {
+    /// `pendingAvailable` | `alreadyWatched` | `transferDone` | `transferError`
+    pub kind: &'static str,
+    pub title: String,
+    pub item_id: Option<i64>,
+    pub detail: Option<String>,
+}
+
+pub fn notice(app: &AppHandle, kind: &'static str, title: String, item_id: Option<i64>, detail: Option<String>) {
+    let _ = app.emit("notice", Notice { kind, title, item_id, detail });
 }
 
 /// Avisa a la interfaz de que hay datos nuevos, como mucho una vez por segundo.
@@ -43,6 +59,18 @@ impl ChangeNotifier {
     }
 }
 
+fn metadata_language(settings: &HashMap<String, String>) -> String {
+    settings.get("metadataLanguage").cloned().unwrap_or_else(|| "es-ES".into())
+}
+
+/// Cliente de TMDb con la clave guardada, y el idioma de los datos.
+pub fn client(app: &AppHandle) -> Result<(Tmdb, String)> {
+    let state = app.state::<AppState>();
+    let settings = db::settings(&state.db())?;
+    let key = settings.get("tmdbKey").filter(|k| !k.is_empty()).ok_or_else(|| anyhow!("tmdb_no_key"))?;
+    Ok((Tmdb::new(state.http.clone(), key), metadata_language(&settings)))
+}
+
 pub async fn scan(app: AppHandle) -> Result<()> {
     let state = app.state::<AppState>();
     let (libraries, settings) = {
@@ -50,7 +78,7 @@ pub async fn scan(app: AppHandle) -> Result<()> {
         (db::libraries(&conn)?, db::settings(&conn)?)
     };
     let key = settings.get("tmdbKey").cloned().unwrap_or_default();
-    let language = settings.get("metadataLanguage").cloned().unwrap_or_else(|| "es-ES".into());
+    let language = metadata_language(&settings);
     let notifier = Arc::new(ChangeNotifier { app: app.clone(), last: Mutex::new(Instant::now()) });
 
     // 1. Recorrer carpetas y sincronizar la tabla de archivos.
@@ -112,11 +140,50 @@ pub async fn scan(app: AppHandle) -> Result<()> {
 
     // 4. Notas de IMDb.
     emit(&app, "ratings", 0, 0, None);
-    if let Err(e) = update_imdb_ratings(&app).await {
+    if let Err(e) = update_imdb_ratings(&app, None).await {
         eprintln!("[scan] notas de IMDb: {e:#}");
     }
 
     db::prune_orphans(&state.db())?;
+    notifier.notify(true);
+    emit(&app, "done", 0, 0, None);
+    Ok(())
+}
+
+/// Vuelve a descargar la ficha de todas las películas identificadas (p. ej. tras cambiar el
+/// idioma de los datos). Respeta las identificaciones hechas a mano.
+pub async fn refresh_all(app: AppHandle) -> Result<()> {
+    let (client, language) = client(&app)?;
+    let items: Vec<(i64, i64, String)> = {
+        let state = app.state::<AppState>();
+        let conn = state.db();
+        let mut stmt = conn.prepare("SELECT id, tmdb_id, title FROM items WHERE tmdb_id IS NOT NULL")?;
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?
+    };
+    let total = items.len();
+    let done = Arc::new(AtomicUsize::new(0));
+    let notifier = Arc::new(ChangeNotifier { app: app.clone(), last: Mutex::new(Instant::now()) });
+    emit(&app, "refreshing", 0, total, None);
+    futures::stream::iter(items)
+        .map(|(id, tmdb_id, title)| {
+            let (app, client, language, done, notifier) =
+                (app.clone(), client.clone(), language.clone(), done.clone(), notifier.clone());
+            async move {
+                if let Err(e) = store_details(&app, &client, tmdb_id, &language, None, Some(id)).await {
+                    eprintln!("[refresh] {title}: {e:#}");
+                }
+                let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+                emit(&app, "refreshing", n, total, Some(title));
+                notifier.notify(false);
+            }
+        })
+        .buffer_unordered(6)
+        .collect::<Vec<()>>()
+        .await;
+    emit(&app, "ratings", 0, 0, None);
+    if let Err(e) = update_imdb_ratings(&app, None).await {
+        eprintln!("[refresh] notas de IMDb: {e:#}");
+    }
     notifier.notify(true);
     emit(&app, "done", 0, 0, None);
     Ok(())
@@ -232,22 +299,29 @@ async fn match_file(app: &AppHandle, client: Option<&Tmdb>, language: &str, file
         return Ok(());
     };
 
-    let existing: Option<i64> = state
+    // ¿Ya la conocíamos? (otra copia, una pendiente o una vista cuyo archivo se borró)
+    let existing: Option<(i64, String, bool, i64)> = state
         .db()
         .query_row(
-            "SELECT id FROM items WHERE kind = 'movie' AND tmdb_id = ?1 AND matched > 0",
+            "SELECT id, title, watchlist, (SELECT COUNT(*) FROM history h WHERE h.item_id = items.id)
+             FROM items WHERE kind = 'movie' AND tmdb_id = ?1 AND matched > 0",
             [tmdb_id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?;
     let item = match existing {
-        Some(item) => item,
-        None => {
-            let details = client.details(tmdb_id, language).await?;
-            let item = upsert_details(&state.db(), &details, language, 1, file.item_id)?;
-            download_images(app, item, &details).await;
+        Some((item, title, watchlist, watched)) => {
+            if watchlist {
+                // Era una pendiente y ya la tienes: sale de Pendientes, como ofrecía el 4.0.
+                state.db().execute("UPDATE items SET watchlist = 0, watchlist_at = NULL WHERE id = ?1", [item])?;
+                notice(app, "pendingAvailable", title.clone(), Some(item), None);
+            }
+            if watched > 0 {
+                notice(app, "alreadyWatched", title, Some(item), None);
+            }
             item
         }
+        None => store_details(app, client, tmdb_id, language, file.item_id, None).await?,
     };
     state.db().execute("UPDATE files SET item_id = ?2 WHERE id = ?1", params![file.id, item])?;
     Ok(())
@@ -256,6 +330,24 @@ async fn match_file(app: &AppHandle, client: Option<&Tmdb>, language: &str, file
 fn insert_placeholder(conn: &Connection, title: &str, year: Option<i32>, imdb: Option<&str>) -> Result<i64> {
     conn.execute("INSERT INTO items (title, year, imdb_id) VALUES (?1, ?2, ?3)", params![title, year, imdb])?;
     Ok(conn.last_insert_rowid())
+}
+
+/// Descarga la ficha de TMDb, la guarda y baja sus imágenes. Devuelve el id del item.
+/// `reuse`: item provisional que pasa a ser esta película. `keep_match`: actualización de un
+/// item existente (no cambia su nivel de coincidencia).
+async fn store_details(
+    app: &AppHandle,
+    client: &Tmdb,
+    tmdb_id: i64,
+    language: &str,
+    reuse: Option<i64>,
+    keep_match: Option<i64>,
+) -> Result<i64> {
+    let details = client.details(tmdb_id, language).await?;
+    let state = app.state::<AppState>();
+    let item = upsert_details(&state.db(), &details, language, 1, keep_match.or(reuse))?;
+    download_images(app, item, &details).await;
+    Ok(item)
 }
 
 /// Guarda la ficha de TMDb. Si ya hay un item con ese `tmdb_id` lo actualiza; si no, reutiliza
@@ -273,8 +365,16 @@ pub fn upsert_details(conn: &Connection, d: &Details, language: &str, matched: i
         }
     };
     let json = |v: &Vec<String>| serde_json::to_string(v).unwrap_or_else(|_| "[]".into());
+    // Si el item era otra película (identificación corregida), se descartan su póster, fondo y
+    // nota antiguos. En SQLite todas las expresiones ven los valores previos de la fila.
     tx.execute(
-        "UPDATE items SET tmdb_id = ?2, imdb_id = COALESCE(?3, imdb_id), title = ?4, original_title = ?5, year = ?6,
+        "UPDATE items SET
+            imdb_id = CASE WHEN tmdb_id = ?2 OR tmdb_id IS NULL THEN COALESCE(?3, imdb_id) ELSE ?3 END,
+            imdb_rating = CASE WHEN tmdb_id = ?2 OR tmdb_id IS NULL THEN imdb_rating END,
+            imdb_votes = CASE WHEN tmdb_id = ?2 OR tmdb_id IS NULL THEN imdb_votes END,
+            poster = CASE WHEN tmdb_id = ?2 THEN poster END,
+            backdrop = CASE WHEN tmdb_id = ?2 THEN backdrop END,
+            tmdb_id = ?2, title = ?4, original_title = ?5, year = ?6,
             release_date = ?7, runtime = ?8, overview = ?9, tagline = ?10, certification = ?11,
             original_language = ?12, genres = ?13, countries = ?14, languages = ?15, tmdb_rating = ?16,
             tmdb_votes = ?17, trailer_key = ?18, poster_url = ?19, backdrop_url = ?20,
@@ -306,8 +406,141 @@ pub fn upsert_details(conn: &Connection, d: &Details, language: &str, matched: i
     Ok(id)
 }
 
+/// Pasa archivos, historial, progreso y "Pendiente" de `from` a `into` y borra `from`.
+fn merge_items(conn: &Connection, from: i64, into: i64) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("UPDATE files SET item_id = ?2 WHERE item_id = ?1", [from, into])?;
+    tx.execute("UPDATE history SET item_id = ?2 WHERE item_id = ?1", [from, into])?;
+    tx.execute(
+        "INSERT OR IGNORE INTO playback (item_id, file_id, position, duration, updated_at)
+         SELECT ?2, file_id, position, duration, updated_at FROM playback WHERE item_id = ?1",
+        [from, into],
+    )?;
+    tx.execute(
+        "UPDATE items SET watchlist = MAX(watchlist, (SELECT watchlist FROM items WHERE id = ?1)),
+                          watchlist_at = COALESCE(watchlist_at, (SELECT watchlist_at FROM items WHERE id = ?1))
+         WHERE id = ?2",
+        [from, into],
+    )?;
+    tx.execute("DELETE FROM items WHERE id = ?1", [from])?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Corrige a mano la película de un item. Si esa película ya existía en otro item, se fusionan.
+/// Devuelve el id con el que queda la película.
+pub async fn identify(app: &AppHandle, item_id: i64, tmdb_id: i64) -> Result<i64> {
+    let (client, language) = client(app)?;
+    let details = client.details(tmdb_id, &language).await?;
+    let state = app.state::<AppState>();
+    let target = {
+        let conn = state.db();
+        let other: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM items WHERE kind = 'movie' AND tmdb_id = ?1 AND id != ?2",
+                params![tmdb_id, item_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let target = upsert_details(&conn, &details, &language, 2, Some(other.unwrap_or(item_id)))?;
+        if target != item_id {
+            merge_items(&conn, item_id, target)?;
+        }
+        conn.execute("UPDATE items SET matched = 2 WHERE id = ?1", [target])?;
+        target
+    };
+    download_images(app, target, &details).await;
+    if let Some(imdb) = details.imdb_id {
+        let _ = update_imdb_ratings(app, Some(vec![imdb])).await;
+    }
+    let _ = app.emit("library-changed", ());
+    Ok(target)
+}
+
+/// Corrige la película de un solo archivo (p. ej. dos películas distintas que se llamaban igual
+/// y acabaron en la misma ficha). Si es el único archivo de su ficha, equivale a `identify`.
+pub async fn identify_file(app: &AppHandle, file_id: i64, tmdb_id: i64) -> Result<i64> {
+    let (item_id, siblings): (i64, i64) = app.state::<AppState>().db().query_row(
+        "SELECT item_id, (SELECT COUNT(*) FROM files g WHERE g.item_id = f.item_id) FROM files f WHERE id = ?1",
+        [file_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    if siblings <= 1 {
+        return identify(app, item_id, tmdb_id).await;
+    }
+    let (client, language) = client(app)?;
+    let details = client.details(tmdb_id, &language).await?;
+    let state = app.state::<AppState>();
+    let target = {
+        let conn = state.db();
+        // Sin `reuse`: si la película no existía se crea una ficha nueva para este archivo.
+        let target = upsert_details(&conn, &details, &language, 2, None)?;
+        conn.execute("UPDATE files SET item_id = ?2 WHERE id = ?1", [file_id, target])?;
+        conn.execute("UPDATE items SET matched = 2 WHERE id = ?1", [target])?;
+        target
+    };
+    download_images(app, target, &details).await;
+    if let Some(imdb) = details.imdb_id {
+        let _ = update_imdb_ratings(app, Some(vec![imdb])).await;
+    }
+    let _ = app.emit("library-changed", ());
+    Ok(target)
+}
+
+/// Añade una película que no está en disco, a Pendientes (`pending`) o a Vistas (`watched`).
+pub async fn add(app: &AppHandle, tmdb_id: i64, list: &str) -> Result<i64> {
+    let (client, language) = client(app)?;
+    let state = app.state::<AppState>();
+    let existing: Option<i64> = state
+        .db()
+        .query_row("SELECT id FROM items WHERE kind = 'movie' AND tmdb_id = ?1", [tmdb_id], |r| r.get(0))
+        .optional()?;
+    let item = match existing {
+        Some(id) => id,
+        None => store_details(app, &client, tmdb_id, &language, None, None).await?,
+    };
+    {
+        let conn = state.db();
+        if list == "watched" {
+            conn.execute(
+                "INSERT INTO history (item_id, watched_at, rewatch, source)
+                 VALUES (?1, datetime('now'), EXISTS (SELECT 1 FROM history WHERE item_id = ?1), 'manual')",
+                [item],
+            )?;
+        } else {
+            conn.execute("UPDATE items SET watchlist = 1, watchlist_at = datetime('now') WHERE id = ?1", [item])?;
+        }
+    }
+    if existing.is_none() {
+        let imdb: Option<String> = state.db().query_row("SELECT imdb_id FROM items WHERE id = ?1", [item], |r| r.get(0))?;
+        if let Some(imdb) = imdb {
+            let _ = update_imdb_ratings(app, Some(vec![imdb])).await;
+        }
+    }
+    let _ = app.emit("library-changed", ());
+    Ok(item)
+}
+
+/// Vuelve a descargar la ficha de un item ya identificado.
+pub async fn refresh(app: &AppHandle, item_id: i64) -> Result<()> {
+    let (client, language) = client(app)?;
+    let tmdb_id: Option<i64> = app
+        .state::<AppState>()
+        .db()
+        .query_row("SELECT tmdb_id FROM items WHERE id = ?1", [item_id], |r| r.get(0))?;
+    let tmdb_id = tmdb_id.ok_or_else(|| anyhow!("not_identified"))?;
+    store_details(app, &client, tmdb_id, &language, None, Some(item_id)).await?;
+    let imdb: Option<String> =
+        app.state::<AppState>().db().query_row("SELECT imdb_id FROM items WHERE id = ?1", [item_id], |r| r.get(0))?;
+    if let Some(imdb) = imdb {
+        let _ = update_imdb_ratings(app, Some(vec![imdb])).await;
+    }
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
 /// Descarga una imagen de TMDb a la caché. Devuelve la ruta relativa a la caché.
-async fn fetch_image(http: &reqwest::Client, cache_dir: &Path, remote: &str, size: &str, folder: &str) -> Option<String> {
+pub async fn fetch_image(http: &reqwest::Client, cache_dir: &Path, remote: &str, size: &str, folder: &str) -> Option<String> {
     let name = remote.trim_start_matches('/');
     let rel = format!("{folder}/{name}");
     let dest = cache_dir.join(&rel);
@@ -316,6 +549,9 @@ async fn fetch_image(http: &reqwest::Client, cache_dir: &Path, remote: &str, siz
     }
     let resp = http.get(format!("{}/{size}/{name}", tmdb::IMAGE_BASE)).send().await.ok()?.error_for_status().ok()?;
     let bytes = resp.bytes().await.ok()?;
+    if let Some(dir) = dest.parent() {
+        tokio::fs::create_dir_all(dir).await.ok()?;
+    }
     let tmp = dest.with_extension("part");
     tokio::fs::write(&tmp, &bytes).await.ok()?;
     tokio::fs::rename(&tmp, &dest).await.ok()?;
@@ -377,12 +613,16 @@ async fn download_missing_images(app: &AppHandle) {
         .await;
 }
 
-pub async fn update_imdb_ratings(app: &AppHandle) -> Result<()> {
+/// Actualiza las notas de IMDb de `only` (o de todas las películas si es `None`).
+pub async fn update_imdb_ratings(app: &AppHandle, only: Option<Vec<String>>) -> Result<()> {
     let state = app.state::<AppState>();
-    let ids: Vec<String> = {
-        let conn = state.db();
-        let mut stmt = conn.prepare("SELECT DISTINCT imdb_id FROM items WHERE imdb_id IS NOT NULL")?;
-        stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+    let ids: Vec<String> = match only {
+        Some(ids) => ids,
+        None => {
+            let conn = state.db();
+            let mut stmt = conn.prepare("SELECT DISTINCT imdb_id FROM items WHERE imdb_id IS NOT NULL")?;
+            stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+        }
     };
     if ids.is_empty() {
         return Ok(());

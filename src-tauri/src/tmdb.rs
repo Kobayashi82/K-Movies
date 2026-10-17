@@ -19,8 +19,8 @@ pub struct Tmdb {
     limit: Arc<Semaphore>,
 }
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)] // `poster_path` y `overview` los usará la corrección manual de coincidencias.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Candidate {
     pub id: i64,
     pub title: String,
@@ -133,6 +133,12 @@ impl Tmdb {
     pub async fn find_by_imdb(&self, imdb_id: &str) -> Result<Option<i64>> {
         let res = self.get(&format!("/find/{imdb_id}"), &[("external_source", "imdb_id")]).await?;
         Ok(res["movie_results"].as_array().and_then(|a| a.first()).and_then(|m| m["id"].as_i64()))
+    }
+
+    /// Una película concreta como candidato (para cuando se pega un enlace o un id).
+    pub async fn candidate_by_id(&self, id: i64, language: &str) -> Result<Candidate> {
+        let v = self.get(&format!("/movie/{id}"), &[("language", language)]).await?;
+        Ok(candidate(&v))
     }
 
     /// Ficha completa en `language` (p. ej. `es-ES`), completando con inglés lo que falte.
