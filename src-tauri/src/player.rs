@@ -37,6 +37,16 @@ pub struct PlayerState {
     pub fullscreen: bool,
     /// Siempre encima de las demás ventanas.
     pub ontop: bool,
+    /// Dónde queda la imagen en la ventana (cambia con la proporción, el recorte y el tamaño).
+    pub frame: Frame,
+}
+
+/// Alto de la ventana y bandas negras de arriba y abajo, en píxeles reales (`osd-dimensions`).
+#[derive(Serialize, Clone, Copy, Default, PartialEq)]
+pub struct Frame {
+    pub h: f64,
+    pub mt: f64,
+    pub mb: f64,
 }
 
 #[derive(Default)]
@@ -244,6 +254,7 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
         ("audio-delay", Format::Double),
         ("sub-delay", Format::Double),
         ("sub-scale", Format::Double),
+        ("osd-dimensions", Format::None),
     ] {
         mpv.observe(name, format)?;
     }
@@ -372,6 +383,10 @@ fn event_loop(app: AppHandle, mpv: Arc<Mpv>, mut tracker: Tracker, session: Sess
                         last_tracks = tracks.clone();
                     }
                     with_state(&app, |s| s.tracks = tracks);
+                } else if name == "osd-dimensions" {
+                    let num = |k: &str| mpv.get(&format!("osd-dimensions/{k}")).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+                    let frame = Frame { h: num("h"), mt: num("mt"), mb: num("mb") };
+                    with_state(&app, |s| s.frame = frame);
                 } else {
                     remember(&app, &name, &value);
                     with_state(&app, |s| apply(s, &name, value));
@@ -470,7 +485,8 @@ pub fn command(app: &AppHandle, args: &[String]) -> Result<()> {
 }
 
 /// Propiedades que la interfaz puede cambiar (no todas las de mpv).
-const SETTABLE: &[&str] = &["pause", "volume", "mute", "aid", "sid", "audio-delay", "sub-delay", "sub-scale", "sub-margin-y"];
+const SETTABLE: &[&str] =
+    &["pause", "volume", "mute", "aid", "sid", "audio-delay", "sub-delay", "sub-scale", "sub-margin-y", "sub-pos"];
 
 pub fn set(app: &AppHandle, name: &str, value: &str) -> Result<()> {
     if !SETTABLE.contains(&name) {
@@ -501,6 +517,35 @@ pub fn add_sub_margin(app: &AppHandle, percent: f64) -> Result<()> {
     with_state(app, |s| s.sub_margin = ((s.sub_margin / 7.2).round() + percent).clamp(0.0, 40.0) * 7.2);
     emit_state(app);
     Ok(())
+}
+
+/// Proporción forzada (`16:9`; vacío = la del vídeo), como la tecla A de VLC. Quita el recorte.
+/// Vale solo para esta sesión.
+pub fn set_aspect(app: &AppHandle, ratio: &str) -> Result<()> {
+    let m = mpv(app)?;
+    m.set("video-crop", "")?;
+    m.set("video-aspect-override", if ratio.is_empty() { "no" } else { ratio })
+}
+
+/// Recorta la imagen a una proporción (ancho / alto; 0 = sin recorte), como la tecla C de VLC.
+/// Quita la proporción forzada. Vale solo para esta sesión.
+pub fn set_crop(app: &AppHandle, ratio: f64) -> Result<()> {
+    let m = mpv(app)?;
+    m.set("video-aspect-override", "no")?;
+    if ratio <= 0.0 {
+        return m.set("video-crop", "");
+    }
+    let num = |k: &str| m.get(&format!("video-params/{k}")).and_then(|v| v.parse::<f64>().ok());
+    let (Some(w), Some(h)) = (num("w"), num("h")) else { bail!("no_video") };
+    m.set("video-crop", &crop_rect(w, h, num("par").unwrap_or(1.0), ratio))
+}
+
+/// Rectángulo `video-crop` (`AnchoxAlto+x+y`, en píxeles del vídeo) que deja la imagen en
+/// `ratio`, centrado. `par` es la proporción de cada píxel (los DVD anamórficos no son cuadrados).
+fn crop_rect(w: f64, h: f64, par: f64, ratio: f64) -> String {
+    let display = w * par / h;
+    let (cw, ch) = if display > ratio { ((w * ratio / display).round(), h) } else { (w, (h * display / ratio).round()) };
+    format!("{cw}x{ch}+{}+{}", ((w - cw) / 2.0).round(), ((h - ch) / 2.0).round())
 }
 
 pub fn close(app: &AppHandle) {
@@ -640,6 +685,16 @@ mod tests {
         assert_eq!(p.sub_scale, None);
         assert_eq!(p.sub_background, None);
         assert!(p.sub_margin.is_some_and(|m| (m - 44.0).abs() < 0.001));
+    }
+
+    #[test]
+    fn crop_keeps_the_middle() {
+        // 2,39:1 de un vídeo 16:9 de 1920x1080: bandas arriba y abajo fuera.
+        assert_eq!(crop_rect(1920.0, 1080.0, 1.0, 2.39), "1920x803+0+139");
+        // 4:3 de un 16:9: se quitan los lados.
+        assert_eq!(crop_rect(1920.0, 1080.0, 1.0, 4.0 / 3.0), "1440x1080+240+0");
+        // DVD anamórfico (720x576 que se ve 16:9) recortado a 4:3.
+        assert_eq!(crop_rect(720.0, 576.0, 64.0 / 45.0, 4.0 / 3.0), "540x576+90+0");
     }
 
     #[test]

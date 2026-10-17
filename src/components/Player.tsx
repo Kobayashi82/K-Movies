@@ -58,8 +58,25 @@ const signed = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${formatNumber
 const HIDE_AFTER = 2500;
 /** Píxeles (de un vídeo de 720 de alto) por cada 1 % de altura de los subtítulos. */
 const PX_PER_PERCENT = 7.2;
+/** Alto (CSS) de los controles de abajo: con ellos a la vista, los subtítulos suben por encima. */
+const CONTROLS_PX = 120;
 /** Por debajo de este tamaño de ventana, controles mínimos (una ventana pequeña flotando). */
 const isCompact = () => window.innerWidth < 560 || window.innerHeight < 320;
+
+/** Proporciones de la tecla A y recortes de la tecla C, como en VLC. La primera es la del vídeo. */
+const ASPECTS = ["", "16:9", "4:3", "1:1", "16:10", "2.21:1", "2.35:1", "2.39:1", "5:4"];
+const CROPS = ["", "16:10", "16:9", "4:3", "1.85:1", "2.21:1", "2.35:1", "2.39:1", "5:3", "5:4", "1:1"];
+const ratioOf = (r: string) => {
+  const [w, h = "1"] = r.split(":");
+  return Number(w) / Number(h);
+};
+const isAss = (tr: Track | undefined) => tr?.codec === "ass" || tr?.codec === "ssa";
+
+/** Sin anillo de foco al pulsar con el ratón: si no, Espacio o Esc después lo dejan marcado. */
+const noMouseFocus = (e: React.MouseEvent) => {
+  if ((e.target as Element).closest("button, label")) e.preventDefault();
+};
+const dropFocus = () => (document.activeElement as HTMLElement | null)?.blur?.();
 
 /** Botón que repite la acción mientras se mantiene pulsado (para ir de 1 en 1 sin cansarse). */
 function RepeatButton({ onStep, title, children }: { onStep: () => void; title?: string; children: ReactNode }) {
@@ -125,6 +142,11 @@ export function Player() {
   const [drag, setDrag] = useState<number | null>(null);
   const [hover, setHover] = useState<{ x: number; time: number } | null>(null);
   const [compact, setCompact] = useState(isCompact);
+  /** Aviso breve en pantalla al cambiar de pista, proporción o recorte con el teclado. */
+  const [osd, setOsd] = useState<string | null>(null);
+  /** Posición en `ASPECTS` y `CROPS` (solo para esta sesión). */
+  const view = useRef({ aspect: 0, crop: 0 });
+  const osdTimer = useRef(0);
   const hideTimer = useRef(0);
   const clickTimer = useRef(0);
   const seekTimer = useRef(0);
@@ -155,17 +177,69 @@ export function Player() {
 
   // Con los controles a la vista, los subtítulos suben para no quedar debajo de la barra.
   // `sub-margin-y` va en píxeles de un vídeo de 720 de alto, sea cual sea el tamaño real.
+  // Los ASS traen sus propios márgenes y no hacen caso de `sub-margin-y`: a esos se les sube con
+  // `sub-pos`, que va en % del alto de la imagen (sin las bandas negras) y solo mueve lo que va
+  // abajo y quedaría tapado (los carteles colocados en su sitio no se mueven).
   const margin = s?.subMargin;
+  const assSub = isAss((s?.tracks ?? []).find((tr) => tr.type === "sub" && tr.selected));
+  const { h: frameH = 0, mt: frameTop = 0, mb: frameBottom = 0 } = s?.frame ?? {};
   useEffect(() => {
     if (margin == null) return;
     const update = () => {
-      const lift = shown && !compact ? (120 * 720) / window.innerHeight : 0;
+      const lifted = shown && !compact;
+      const lift = lifted ? (CONTROLS_PX * 720) / window.innerHeight : 0;
       void api.player.set("sub-margin-y", Math.round(Math.max(margin, lift))).catch(() => {});
+      let pos = 100;
+      const picture = frameH - frameTop - frameBottom;
+      if (lifted && assSub && picture > 0) {
+        const covered = (CONTROLS_PX * frameH) / window.innerHeight - frameBottom;
+        if (covered > 0) pos = Math.max(50, Math.round(100 - (covered / picture) * 100));
+      }
+      void api.player.set("sub-pos", pos).catch(() => {});
     };
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
-  }, [margin, shown, compact]);
+  }, [margin, shown, compact, assSub, frameH, frameTop, frameBottom]);
+
+  const flash = (text: string) => {
+    setOsd(text);
+    window.clearTimeout(osdTimer.current);
+    osdTimer.current = window.setTimeout(() => setOsd(null), 1800);
+  };
+  useEffect(() => () => window.clearTimeout(osdTimer.current), []);
+
+  /** Siguiente pista de audio (B) o de subtítulos (V, pasando también por "Desactivados"). */
+  const cycleTrack = (type: "audio" | "sub") => {
+    if (!s) return;
+    const list = (s.tracks ?? []).filter((tr) => tr.type === type);
+    const label = t(type === "sub" ? "player.subtitles" : "player.audio");
+    const options: (Track | null)[] = type === "sub" ? [null, ...list] : list;
+    if (!list.length) return flash(`${label}: ${t("player.none")}`);
+    const current = options.findIndex((o) => (o ? o.selected : list.every((tr) => !tr.selected)));
+    const next = options[(current + 1) % options.length];
+    void api.player.set(type === "sub" ? "sid" : "aid", next ? next.id : "no");
+    const flags = { forced: t("player.forced"), external: t("player.external") };
+    const name = next
+      ? [trackName(next, t("player.track", { id: next.id })), trackDetail(next, flags)].filter(Boolean).join(" · ")
+      : t("player.off");
+    flash(`${label}: ${name}`);
+  };
+
+  /** Proporción forzada (A) o recorte (C); cada pulsación pasa a la siguiente, como en VLC. */
+  const cycleView = (kind: "aspect" | "crop") => {
+    const v = view.current;
+    const list = kind === "aspect" ? ASPECTS : CROPS;
+    const index = (v[kind] + 1) % list.length;
+    const value = list[index];
+    v.aspect = kind === "aspect" ? index : 0;
+    v.crop = kind === "crop" ? index : 0;
+    const done = kind === "aspect" ? api.player.aspect(value) : api.player.crop(value ? ratioOf(value) : 0);
+    done.then(
+      () => flash(value ? t(`player.${kind}`, { value }) : t(`player.${kind}Off`)),
+      () => flash(t("player.viewFailed")),
+    );
+  };
 
   const togglePause = () => s && void api.player.set("pause", !s.paused);
   const seekBy = (sec: number) => void api.player.command("seek", sec, "relative");
@@ -194,6 +268,10 @@ export function Player() {
       else if (k === "t") void api.player.ontop(!s.ontop);
       else if (k === "z") add("sub-delay", -0.1);
       else if (k === "x") add("sub-delay", 0.1);
+      else if (k === "b") cycleTrack("audio");
+      else if (k === "v") cycleTrack("sub");
+      else if (k === "a") cycleView("aspect");
+      else if (k === "c") cycleView("crop");
       else if (k === "escape") {
         if (panel) setPanel(null);
         else if (s.fullscreen) fullscreen(false);
@@ -267,8 +345,15 @@ export function Player() {
 
   if (compact) {
     return (
-      <div className={shown ? "player compact" : "player compact idle"} onMouseMove={poke} {...dragRegion}>
+      <div
+        className={shown ? "player compact" : "player compact idle"}
+        onMouseMove={poke}
+        onMouseDown={noMouseFocus}
+        onPointerUp={dropFocus}
+        {...dragRegion}
+      >
         {loading && <Loader2 className="pl-spinner spin" size={32} />}
+        {osd && <div className="pl-osd">{osd}</div>}
         <div className="pl-compact-actions">{windowButtons}</div>
         <button className="pl-compact-play" onClick={togglePause} title={t(s.paused ? "player.play" : "player.pause")}>
           {s.paused ? <Play size={26} fill="currentColor" strokeWidth={0} /> : <Pause size={26} fill="currentColor" strokeWidth={0} />}
@@ -283,9 +368,10 @@ export function Player() {
   const marginPercent = Math.round(s.subMargin / PX_PER_PERCENT);
 
   return (
-    <div className={shown ? "player" : "player idle"} onMouseMove={poke}>
+    <div className={shown ? "player" : "player idle"} onMouseMove={poke} onMouseDown={noMouseFocus} onPointerUp={dropFocus}>
       <div className="pl-stage" onClick={onStageClick} onDoubleClick={onStageDouble} />
       {loading && <Loader2 className="pl-spinner spin" size={44} />}
+      {osd && <div className="pl-osd">{osd}</div>}
 
       <div className="pl-top" {...dragRegion}>
         <span className="pl-title" {...dragRegion}>
@@ -316,6 +402,9 @@ export function Player() {
                 onPlus={() => add("audio-delay", 0.05)}
                 onReset={s.audioDelay ? () => void api.player.set("audio-delay", 0) : undefined}
               />
+              <p className="pl-note">
+                <kbd>B</kbd> {t("player.nextAudio")}
+              </p>
             </>
           ) : (
             <>
@@ -362,7 +451,9 @@ export function Player() {
                 <span>{t("player.subBackground")}</span>
                 <input type="checkbox" checked={s.subBackground} onChange={(e) => void api.player.subBackground(e.target.checked)} />
               </label>
-              <p className="pl-note">{t("player.perMovie")}</p>
+              <p className="pl-note">
+                <kbd>V</kbd> {t("player.nextSub")}
+              </p>
             </>
           )}
         </div>

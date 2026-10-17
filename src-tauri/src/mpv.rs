@@ -297,6 +297,11 @@ mod tests {
             ("subs-fallback", "default"),
             ("sub-auto", "fuzzy"),
             ("hwdec", "auto-safe"),
+            ("sub-pos", "90"),
+            ("video-aspect-override", "16:9"),
+            ("video-aspect-override", "no"),
+            ("video-crop", "100x100+10+10"),
+            ("video-crop", ""),
         ] {
             mpv.set(k, v).unwrap_or_else(|e| panic!("{k}={v}: {e}"));
         }

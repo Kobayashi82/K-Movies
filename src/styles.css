@@ -2198,6 +2198,38 @@ html.player-mode body {
 .player.idle {
   cursor: none;
 }
+/* El reproductor se maneja con el ratón y atajos: ningún botón se queda marcado. */
+.player :focus-visible {
+  outline: none;
+}
+/* Aviso breve al cambiar de pista, proporción o recorte con el teclado. */
+.pl-osd {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  z-index: 2;
+  max-width: calc(100% - 48px);
+  transform: translateX(-50%);
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  background: var(--pl-glass);
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  animation: pl-osd-in 0.15s var(--ease);
+}
+.player.compact .pl-osd {
+  top: 46px;
+  font-size: 12.5px;
+}
+@keyframes pl-osd-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -4px);
+  }
+}
 .pl-stage {
   position: absolute;
   inset: 0;
@@ -2593,9 +2625,23 @@ html.player-mode body {
 }
 .pl-note {
   margin: 6px 4px 0;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   color: var(--pl-dim);
   font-size: 12px;
   line-height: 1.4;
+}
+.pl-note kbd {
+  display: inline-block;
+  min-width: 20px;
+  margin-right: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--pl-text);
+  font: 600 11px/16px var(--font);
+  text-align: center;
 }
 .settings-sub-row {
   display: flex;

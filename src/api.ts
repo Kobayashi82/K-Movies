@@ -172,6 +172,8 @@ export interface PlayerState {
   fullscreen: boolean;
   /** Siempre encima de las demás ventanas. */
   ontop: boolean;
+  /** Alto de la ventana y bandas negras de arriba y abajo, en píxeles reales. */
+  frame: { h: number; mt: number; mb: number };
 }
 
 /** Qué hacer si el archivo ya existe en el destino. */
@@ -212,6 +214,10 @@ export const api = {
     subMargin: (percent: number) => invoke<void>("player_sub_margin", { percent }),
     fullscreen: (on: boolean) => invoke<void>("player_fullscreen", { on }),
     ontop: (on: boolean) => invoke<void>("player_ontop", { on }),
+    /** Proporción forzada (`16:9`; vacío = la del vídeo). */
+    aspect: (ratio: string) => invoke<void>("player_aspect", { ratio }),
+    /** Recorta la imagen a esa proporción (ancho / alto; 0 = sin recorte). */
+    crop: (ratio: number) => invoke<void>("player_crop", { ratio }),
     close: () => invoke<void>("player_close"),
   },
   listHistory: (itemId?: number) => invoke<HistoryEntry[]>("list_history", { itemId }),

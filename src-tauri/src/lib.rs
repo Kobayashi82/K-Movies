@@ -326,6 +326,16 @@ async fn player_ontop(app: AppHandle, on: bool) -> CmdResult<()> {
 }
 
 #[tauri::command]
+fn player_aspect(app: AppHandle, ratio: String) -> CmdResult<()> {
+    player::set_aspect(&app, &ratio).map_err(err)
+}
+
+#[tauri::command]
+fn player_crop(app: AppHandle, ratio: f64) -> CmdResult<()> {
+    player::set_crop(&app, ratio).map_err(err)
+}
+
+#[tauri::command]
 fn player_close(app: AppHandle) {
     player::close(&app)
 }
@@ -498,6 +508,8 @@ pub fn run() {
             player_sub_margin,
             player_fullscreen,
             player_ontop,
+            player_aspect,
+            player_crop,
             player_close,
             validate_tmdb_key,
             search_tmdb,
