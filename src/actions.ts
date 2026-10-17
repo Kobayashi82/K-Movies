@@ -95,6 +95,44 @@ export async function deleteFile(fileId: number, path: string) {
   if (answer === "delete") await api.deleteFile(fileId);
 }
 
+/** Reproduce (por defecto, continuando donde se quedó). Los errores salen como aviso. */
+export async function play(id: number, opts: { fileId?: number; fromStart?: boolean } = {}) {
+  try {
+    await api.playItem(id, opts);
+  } catch (e) {
+    useStore.getState().pushNotice({ kind: "playError", title: "", itemId: id, detail: String(e) });
+  }
+}
+
+/** Con reproductores que no dicen por dónde van: al cerrarlo, se pregunta si se terminó. */
+export async function askFinished(id: number, title: string) {
+  const answer = await askChoice({
+    title: i18n.t("playback.askTitle"),
+    message: i18n.t("playback.askMessage", { title }),
+    options: [
+      { value: "no", label: i18n.t("playback.askNo") },
+      { value: "yes", label: i18n.t("playback.askYes"), kind: "primary" },
+    ],
+  });
+  if (answer === "yes") await api.setWatched(id, true);
+}
+
+/** Quitar de Vistas borra todo su historial: si hay más de un visionado, se pregunta antes. */
+export async function unmarkWatched(id: number, count: number) {
+  if (count > 1) {
+    const answer = await askChoice({
+      title: i18n.t("history.unmarkTitle"),
+      message: i18n.t("history.unmarkMessage", { count }),
+      options: [
+        { value: "cancel", label: i18n.t("common.cancel") },
+        { value: "ok", label: i18n.t("history.unmark"), kind: "danger" },
+      ],
+    });
+    if (answer !== "ok") return;
+  }
+  await api.setWatched(id, false);
+}
+
 /** Texto legible para los códigos de error del backend. */
 export function errorText(code: string | null): string {
   const key = `errors.${code}`;

@@ -32,7 +32,7 @@ pub fn emit(app: &AppHandle, phase: &'static str, current: usize, total: usize, 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Notice {
-    /// `pendingAvailable` | `alreadyWatched` | `transferDone` | `transferError`
+    /// `pendingAvailable` | `alreadyWatched` | `transferDone` | `transferError` | `markedWatched` | `askFinished`
     pub kind: &'static str,
     pub title: String,
     pub item_id: Option<i64>,
@@ -502,11 +502,7 @@ pub async fn add(app: &AppHandle, tmdb_id: i64, list: &str) -> Result<i64> {
     {
         let conn = state.db();
         if list == "watched" {
-            conn.execute(
-                "INSERT INTO history (item_id, watched_at, rewatch, source)
-                 VALUES (?1, datetime('now'), EXISTS (SELECT 1 FROM history WHERE item_id = ?1), 'manual')",
-                [item],
-            )?;
+            db::add_watch(&conn, item, None, "manual")?;
         } else {
             conn.execute("UPDATE items SET watchlist = 1, watchlist_at = datetime('now') WHERE id = ?1", [item])?;
         }

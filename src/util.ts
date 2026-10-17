@@ -8,6 +8,21 @@ export function formatRuntime(minutes: number | null): string {
   return h ? i18n.t("format.hoursMinutes", { h, m }) : i18n.t("format.minutes", { m });
 }
 
+/** Segundos → `1:05:09` o `5:09`. */
+export function formatClock(seconds: number | null): string {
+  const s = Math.max(0, Math.floor(seconds ?? 0));
+  const h = Math.floor(s / 3600);
+  const mm = String(Math.floor(s / 60) % 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${mm.padStart(2, "0")}:${ss}` : `${mm}:${ss}`;
+}
+
+/** Lo que falta para terminar (`1 h 5 min`), redondeado al minuto y nunca menos de uno. */
+export function formatRemaining(position: number | null, duration: number | null): string {
+  if (!duration || position == null) return "";
+  return formatRuntime(Math.max(1, Math.round((duration - position) / 60)));
+}
+
 export function formatSize(bytes: number): string {
   if (!bytes) return "";
   const units = ["B", "KB", "MB", "GB", "TB"];

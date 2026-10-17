@@ -102,7 +102,55 @@
     "moveTo": "Move to…",
     "delete": "Delete file",
     "deleteConfirm": "Send \"{{name}}\" and its subtitles to the Recycle Bin?",
-    "otherMovie": "This file is a different movie"
+    "otherMovie": "This file is a different movie",
+    "resume": "Resume",
+    "resumeAt": "Resume · {{time}}",
+    "fromStart": "From the beginning",
+    "playingIn": "Playing in {{player}}",
+    "pausedIn": "Paused in {{player}}",
+    "progress": "{{position}} of {{duration}}",
+    "remaining": "{{time}} left",
+    "forget": "Forget where I left off",
+    "playFile": "Play this file"
+  },
+  "continue": {
+    "title": "Continue watching",
+    "remaining": "{{time}} left",
+    "playingNow": "Playing now",
+    "remove": "Remove from Continue watching",
+    "previous": "Previous",
+    "next": "Next"
+  },
+  "playback": {
+    "playing": "Playing",
+    "paused": "Paused",
+    "openIn": "Open in {{player}}",
+    "watched": "Marked as watched",
+    "failed": "Couldn't play the movie",
+    "askTitle": "Did you finish it?",
+    "askMessage": "You closed \"{{title}}\". If you watched all of it, it will be marked as watched.",
+    "askYes": "Yes, mark as watched",
+    "askNo": "No"
+  },
+  "history": {
+    "title": "History",
+    "mode_grid": "Posters",
+    "mode_history": "History",
+    "count_one": "{{count}} viewing",
+    "count_other": "{{count}} viewings",
+    "empty": "Your history is empty.",
+    "rewatch": "Rewatch",
+    "source_player": "In the player",
+    "source_manual": "Manually",
+    "source_letterboxd": "Letterboxd",
+    "source_kmovies4": "K-Movies 4.0",
+    "add": "Add a viewing",
+    "addConfirm": "Add",
+    "editDate": "Change the date",
+    "delete": "Delete this viewing",
+    "unmarkTitle": "Remove from Watched?",
+    "unmarkMessage": "All {{count}} viewings in its history will be deleted.",
+    "unmark": "Remove from Watched"
   },
   "settings": {
     "title": "Settings",
@@ -148,7 +196,9 @@
     "posterRating_none": "None",
     "posterTitle": "Show the title under the poster",
     "posterYear": "Show the year next to the title",
-    "posterRating_both": "Both"
+    "posterRating_both": "Both",
+    "watchedThreshold": "Mark as watched after",
+    "trackingHint": "With VLC, K-Movies knows where you are: it saves your position, resumes from there and marks the movie as watched. With other players, it asks whether you finished it when you close them."
   },
   "welcome": {
     "title": "Welcome to K-Movies",
@@ -203,7 +253,8 @@
   },
   "notice": {
     "pendingAvailable": "\"{{title}}\" is now in your library and was removed from Pending.",
-    "alreadyWatched": "You've already watched \"{{title}}\"."
+    "alreadyWatched": "You've already watched \"{{title}}\".",
+    "markedWatched": "\"{{title}}\" marked as watched."
   },
   "errors": {
     "tmdb_no_key": "Add your TMDb key in Settings first.",
@@ -212,7 +263,9 @@
     "file_missing": "The file can't be found. Is the drive connected?",
     "same_folder": "The file is already in that folder.",
     "not_identified": "This movie hasn't been identified yet.",
-    "cancelled": "Cancelled"
+    "cancelled": "Cancelled",
+    "already_playing": "This movie is already playing.",
+    "bad_date": "That date isn't valid."
   },
   "conflict": {
     "title": "That name already exists",

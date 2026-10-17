@@ -8,8 +8,10 @@ import {
   Copy,
   ExternalLink,
   FolderOpen,
+  Pause,
   Play,
   RefreshCw,
+  RotateCcw,
   SearchCheck,
   Star,
   Trash2,
@@ -19,10 +21,21 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { deleteFile, errorText, transferFile } from "../actions";
+import { deleteFile, errorText, transferFile, unmarkWatched } from "../actions";
 import { api, cachedTmdbImage, fileUrl, parseDbDate, type Item, type ItemDetail } from "../api";
+import { useNowPlaying } from "../hooks";
 import { useStore } from "../store";
-import { displayName, formatDate, formatNumber, formatRuntime, formatSize, heroTransition } from "../util";
+import {
+  displayName,
+  formatClock,
+  formatDate,
+  formatNumber,
+  formatRemaining,
+  formatRuntime,
+  formatSize,
+  heroTransition,
+} from "../util";
+import { ItemHistory } from "./History";
 import { PosterImage } from "./PosterCard";
 
 export function Detail({ item }: { item: Item }) {
@@ -75,6 +88,11 @@ export function Detail({ item }: { item: Item }) {
   const backdrop = fileUrl(item.backdrop);
   const released = parseDbDate(item.releaseDate);
   const watched = item.watchCount > 0;
+  const live = useNowPlaying(item.id);
+  const position = live?.tracked ? live.position : item.position;
+  const duration = live?.tracked ? live.duration : item.duration;
+  const resumable = !live && item.position != null && item.duration != null;
+  const play = (opts: { fileId?: number; fromStart?: boolean } = {}) => void run(() => api.playItem(item.id, opts));
 
   return (
     <div className="detail" role="dialog" aria-modal="true" aria-label={item.title}>
@@ -138,10 +156,22 @@ export function Detail({ item }: { item: Item }) {
             {detail?.overview && <p className="detail-overview">{detail.overview}</p>}
 
             <div className="detail-actions">
-              {item.fileCount > 0 && (
-                <button className="btn primary" onClick={() => void run(() => api.playItem(item.id))}>
+              {item.fileCount > 0 && live && (
+                <button className="btn primary" disabled>
+                  {live.paused ? <Pause size={18} fill="currentColor" strokeWidth={0} /> : <Play size={18} fill="currentColor" strokeWidth={0} />}
+                  {t(live.paused ? "detail.pausedIn" : "detail.playingIn", { player: live.player })}
+                </button>
+              )}
+              {item.fileCount > 0 && !live && (
+                <button className="btn primary" onClick={() => play()}>
                   <Play size={18} fill="currentColor" strokeWidth={0} />
-                  {t("detail.play")}
+                  {resumable ? t("detail.resumeAt", { time: formatClock(item.position) }) : t("detail.play")}
+                </button>
+              )}
+              {item.fileCount > 0 && resumable && (
+                <button className="btn" onClick={() => play({ fromStart: true })}>
+                  <RotateCcw size={18} />
+                  {t("detail.fromStart")}
                 </button>
               )}
               {detail?.trailerKey && (
@@ -150,7 +180,10 @@ export function Detail({ item }: { item: Item }) {
                   {t("detail.trailer")}
                 </button>
               )}
-              <button className={watched ? "btn toggled" : "btn"} onClick={() => void run(() => api.setWatched(item.id, !watched))}>
+              <button
+                className={watched ? "btn toggled" : "btn"}
+                onClick={() => void run(() => (watched ? unmarkWatched(item.id, item.watchCount) : api.setWatched(item.id, true)))}
+              >
                 <Check size={18} />
                 {watched ? t("detail.watched") : t("detail.markWatched")}
               </button>
@@ -170,6 +203,24 @@ export function Detail({ item }: { item: Item }) {
               </div>
             </div>
             {error && <div className="detail-error">{error}</div>}
+
+            {item.fileCount > 0 && position != null && duration ? (
+              <div className="detail-progress">
+                <span className="detail-progress-bar">
+                  <span style={{ width: `${Math.min(1, position / duration) * 100}%` }} />
+                </span>
+                <span className="detail-progress-text">
+                  {t("detail.progress", { position: formatClock(position), duration: formatClock(duration) })}
+                  {" · "}
+                  {live?.watched ? t("playback.watched") : t("detail.remaining", { time: formatRemaining(position, duration) })}
+                </span>
+                {resumable && (
+                  <button className="icon-btn small" onClick={() => void run(() => api.clearProgress(item.id))} title={t("detail.forget")}>
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            ) : null}
 
             <dl className="detail-facts">
               {directors.length > 0 && (
@@ -242,6 +293,11 @@ export function Detail({ item }: { item: Item }) {
                   </span>
                   <div className="file-actions">
                     {detail.files.length > 1 && (
+                      <button className="icon-btn small" onClick={() => play({ fileId: f.id })} disabled={!!live} title={t("detail.playFile")}>
+                        <Play size={15} />
+                      </button>
+                    )}
+                    {detail.files.length > 1 && (
                       <button
                         className="icon-btn small"
                         onClick={() =>
@@ -276,6 +332,8 @@ export function Detail({ item }: { item: Item }) {
             </ul>
           </section>
         )}
+
+        <ItemHistory item={item} />
 
         {item.tmdbId && (
           <div className="detail-footer">

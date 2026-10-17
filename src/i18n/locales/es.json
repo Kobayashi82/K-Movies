@@ -102,7 +102,55 @@
     "moveTo": "Mover a…",
     "delete": "Borrar archivo",
     "deleteConfirm": "¿Enviar «{{name}}» y sus subtítulos a la papelera de reciclaje?",
-    "otherMovie": "Este archivo es otra película"
+    "otherMovie": "Este archivo es otra película",
+    "resume": "Continuar",
+    "resumeAt": "Continuar · {{time}}",
+    "fromStart": "Desde el principio",
+    "playingIn": "Reproduciendo en {{player}}",
+    "pausedIn": "En pausa en {{player}}",
+    "progress": "{{position}} de {{duration}}",
+    "remaining": "quedan {{time}}",
+    "forget": "Olvidar por dónde iba",
+    "playFile": "Reproducir este archivo"
+  },
+  "continue": {
+    "title": "Seguir viendo",
+    "remaining": "Quedan {{time}}",
+    "playingNow": "Reproduciendo ahora",
+    "remove": "Quitar de Seguir viendo",
+    "previous": "Anteriores",
+    "next": "Siguientes"
+  },
+  "playback": {
+    "playing": "Reproduciendo",
+    "paused": "En pausa",
+    "openIn": "Abierta en {{player}}",
+    "watched": "Marcada como vista",
+    "failed": "No se ha podido reproducir",
+    "askTitle": "¿La has terminado?",
+    "askMessage": "Has cerrado «{{title}}». Si la has visto entera, se marcará como vista.",
+    "askYes": "Sí, marcar como vista",
+    "askNo": "No"
+  },
+  "history": {
+    "title": "Historial",
+    "mode_grid": "Pósters",
+    "mode_history": "Historial",
+    "count_one": "{{count}} visionado",
+    "count_other": "{{count}} visionados",
+    "empty": "Aún no hay nada en tu historial.",
+    "rewatch": "Revisionado",
+    "source_player": "En el reproductor",
+    "source_manual": "A mano",
+    "source_letterboxd": "Letterboxd",
+    "source_kmovies4": "K-Movies 4.0",
+    "add": "Añadir visionado",
+    "addConfirm": "Añadir",
+    "editDate": "Cambiar la fecha",
+    "delete": "Borrar este visionado",
+    "unmarkTitle": "¿Quitar de Vistas?",
+    "unmarkMessage": "Se borrarán los {{count}} visionados de su historial.",
+    "unmark": "Quitar de Vistas"
   },
   "settings": {
     "title": "Ajustes",
@@ -148,7 +196,9 @@
     "posterRating_none": "Ninguna",
     "posterTitle": "Mostrar el título debajo del póster",
     "posterYear": "Mostrar el año junto al título",
-    "posterRating_both": "Ambas"
+    "posterRating_both": "Ambas",
+    "watchedThreshold": "Marcar como vista al llegar al",
+    "trackingHint": "Con VLC, K-Movies sabe por dónde vas: guarda la posición, continúa desde ahí y marca la película como vista. Con otros reproductores, al cerrarlos te pregunta si la terminaste."
   },
   "welcome": {
     "title": "Bienvenido a K-Movies",
@@ -203,7 +253,8 @@
   },
   "notice": {
     "pendingAvailable": "«{{title}}» ya está en tu biblioteca y sale de Pendientes.",
-    "alreadyWatched": "Ya viste «{{title}}»."
+    "alreadyWatched": "Ya viste «{{title}}».",
+    "markedWatched": "«{{title}}» marcada como vista."
   },
   "errors": {
     "tmdb_no_key": "Primero añade tu clave de TMDb en Ajustes.",
@@ -212,7 +263,9 @@
     "file_missing": "No se encuentra el archivo. ¿Está conectado el disco?",
     "same_folder": "El archivo ya está en esa carpeta.",
     "not_identified": "Esta película aún no está identificada.",
-    "cancelled": "Cancelado"
+    "cancelled": "Cancelado",
+    "already_playing": "Esta película ya se está reproduciendo.",
+    "bad_date": "Esa fecha no es válida."
   },
   "conflict": {
     "title": "Ese nombre ya existe",

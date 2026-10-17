@@ -4,14 +4,16 @@ import { Download, Plus, SearchX } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { importPaths } from "./actions";
-import { api, onLibraryChanged, onNotice, onScanProgress, onTransfers } from "./api";
+import { askFinished, importPaths } from "./actions";
+import { api, onLibraryChanged, onNotice, onPlayback, onScanProgress, onTransfers } from "./api";
 import { ActiveFilters } from "./components/ActiveFilters";
 import { Backdrop } from "./components/Backdrop";
 import { ChoiceDialog } from "./components/ChoiceDialog";
+import { ContinueRow } from "./components/ContinueRow";
 import { Detail } from "./components/Detail";
 import { FilterPanel } from "./components/FilterPanel";
 import { Grid } from "./components/Grid";
+import { HistoryList } from "./components/History";
 import { ImportDialog } from "./components/ImportDialog";
 import { SearchDialog } from "./components/SearchDialog";
 import { Settings } from "./components/Settings";
@@ -20,7 +22,7 @@ import { Toasts } from "./components/Toasts";
 import { Toolbar } from "./components/Toolbar";
 import { Trailer } from "./components/Trailer";
 import { Welcome } from "./components/Welcome";
-import { useVisibleItems } from "./hooks";
+import { useContinueItems, useShowContinue, useVisibleItems } from "./hooks";
 import { useStore } from "./store";
 import { useTheme } from "./theme";
 
@@ -39,10 +41,13 @@ export default function App() {
   const query = useStore((s) => s.query);
   const selected = useStore((s) => (s.selectedId == null ? null : (s.items.find((i) => i.id === s.selectedId) ?? null)));
   const visible = useVisibleItems();
+  const continueItems = useContinueItems();
+  const showContinue = useShowContinue() && continueItems.length > 0;
+  const historyMode = useStore((s) => s.view === "watched" && s.watchedMode === "history");
   useTheme(theme);
 
   useEffect(() => {
-    const { refreshItems, refreshLibraries, setScan, setTransfers, pushNotice } = useStore.getState();
+    const { refreshItems, refreshLibraries, setScan, setTransfers, setPlaying, pushNotice } = useStore.getState();
     let timer = 0;
     const subs = [
       onScanProgress((p) => {
@@ -54,7 +59,8 @@ export default function App() {
         timer = window.setTimeout(() => void refreshItems(), 150);
       }),
       onTransfers(setTransfers),
-      onNotice(pushNotice),
+      onPlayback(setPlaying),
+      onNotice((n) => (n.kind === "askFinished" && n.itemId ? void askFinished(n.itemId, n.title) : pushNotice(n))),
       // Arrastrar vídeos a la ventana los importa, como el botón Importar.
       getCurrentWebview().onDragDropEvent((e) => {
         if (e.payload.type === "enter" || e.payload.type === "over") setDragging(true);
@@ -66,6 +72,7 @@ export default function App() {
       }),
     ];
     void api.listTransfers().then(setTransfers);
+    void api.nowPlaying().then(setPlaying);
     void getCurrentWindow().show();
     // Al abrir, se reescanea en segundo plano para recoger archivos nuevos o borrados.
     if (useStore.getState().libraries.length) void api.startScan();
@@ -102,8 +109,10 @@ export default function App() {
           ) : (
             <>
               <ActiveFilters count={visible.length} />
-              {visible.length > 0 ? (
-                <Grid items={visible} />
+              {historyMode && visible.length > 0 ? (
+                <HistoryList items={visible} />
+              ) : visible.length > 0 ? (
+                <Grid items={visible} header={showContinue ? <ContinueRow items={continueItems} /> : null} />
               ) : (
                 <div className="empty">
                   <SearchX size={40} strokeWidth={1.5} />

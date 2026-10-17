@@ -18,6 +18,9 @@ export function ActiveFilters({ count }: { count: number }) {
   const query = useStore((s) => s.query);
   const setFilters = useStore((s) => s.setFilters);
   const clear = useStore((s) => s.clearFilters);
+  const view = useStore((s) => s.view);
+  const watchedMode = useStore((s) => s.watchedMode);
+  const setWatchedMode = useStore((s) => s.setWatchedMode);
 
   const chips: Chip[] = [];
   for (const facet of LIST_FACETS) {
@@ -66,6 +69,15 @@ export function ActiveFilters({ count }: { count: number }) {
         <button className="link-btn" onClick={clear}>
           {t("filters.clearAll")}
         </button>
+      )}
+      {view === "watched" && (
+        <div className="segmented view-mode">
+          {(["grid", "history"] as const).map((m) => (
+            <button key={m} className={watchedMode === m ? "active" : undefined} onClick={() => setWatchedMode(m)}>
+              {t(`history.mode_${m}`)}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

@@ -53,7 +53,7 @@ Registro de decisiones tomadas durante el desarrollo, como pide `ESPECIFICACION.
 
 ### Reproductor
 - Detección en rutas típicas de Archivos de programa y AppData (VLC, mpv/mpv.net, MPC-HC, MPC-BE, PotPlayer). Sin reproductor configurado ni detectado se usa el predeterminado de Windows.
-- Ya se pasan los parámetros para empezar en un punto (`--start-time`, `--start`, `/start`, `/seek`); el seguimiento del progreso llega en la fase 3.
+- Ya se pasan los parámetros para empezar en un punto (`--start-time`, `--start`, `/start`, `/seek`); el seguimiento del progreso está en la fase 3 (abajo).
 
 ### Ventana
 - Sin bordes del sistema, con barra de título propia (`data-tauri-drag-region`), para que la app se vea como una sola superficie.
@@ -95,3 +95,26 @@ Registro de decisiones tomadas durante el desarrollo, como pide `ESPECIFICACION.
 - Confirmaciones con un **diálogo propio** con el estilo de la app, en lugar de los diálogos nativos de Windows.
 - Opciones de las tarjetas: nota en el póster (IMDb, TMDb, ambas en la misma fila, o ninguna), título visible u oculto, y año visible u oculto (siempre a la derecha del título, en la misma fila).
 - `KMOVIES_DATA_DIR` permite arrancar la app con otra carpeta de datos (para probar sin tocar la biblioteca real).
+
+## Fase 3 (2026-10-17)
+
+### Seguimiento de VLC
+- **Una instancia de VLC por reproducción, con su propia interfaz HTTP** en `127.0.0.1`, un puerto libre que elige Windows y una contraseña aleatoria de un solo uso. Todo va en la línea de comandos: **no se toca `vlcrc`**. Descartado lo del 4.0 (editar `vlcrc` para dejar la interfaz web siempre activa en el puerto 8080 con una contraseña fija y consultar cualquier VLC abierto): cambiaba la configuración del usuario, chocaba si el puerto estaba ocupado y podía confundir un VLC abierto a mano con la película.
+- Parámetros (comprobados en VLC 3.0.24): `--no-one-instance` y `--no-one-instance-when-started-from-file` (si no, con VLC ya abierto el archivo iría a esa ventana y no se podría seguir), `--qt-continue=0` (tu `vlcrc` tiene `qt-continue=1`: VLC preguntaría "¿continuar?" por su cuenta; ya arrancamos donde toca con `--start-time`) y `--play-and-exit` (al acabar la película VLC se cierra y vuelves a K-Movies).
+- Se lee `/requests/status.json` cada 2 s (`state`, `time`, `length` y el nombre del archivo, para no contar otra cosa que se abra en esa ventana). La lectura usa un cliente sin proxy, para que un proxy del sistema no se meta en las peticiones a `127.0.0.1`.
+- **Posición**: se guarda cada 15 s y al pausar (por si algo se cierra mal), y al cerrar VLC. Por debajo de 1 minuto no se guarda: abrir la película y cerrarla no cuenta (y no pisa una posición anterior).
+- **Vista**: al pasar el umbral (90 % por defecto, configurable en Ajustes entre 75 y 98 %) se marca **en ese momento**, sin esperar a cerrar (los créditos no hace falta verlos). Se añade al historial con origen "reproductor" y se borra la posición. Si ya estaba vista, cuenta como revisionado.
+- La posición se guarda por película (no por archivo), con el archivo con el que se empezó: "Continuar" vuelve a ese archivo si sigue ahí.
+- **Otros reproductores**: solo se sabe cuándo se cierran. Si estuvieron abiertos 20 minutos o más, se pregunta "¿La has terminado?". mpv (IPC) y MPC (interfaz web) quedan pendientes para tener seguimiento completo.
+
+### Historial
+- Cada visionado es una entrada con fecha; "revisionado" se recalcula siempre (todos menos el primero por fecha), así que añadir una fecha antigua o borrar una entrada deja las marcas bien.
+- Se pueden añadir visionados con fecha, cambiar la fecha (pulsándola) y borrar entradas, en la ficha. Las fechas puestas a mano son solo el día (`AAAA-MM-DD`); las del reproductor, fecha y hora en UTC.
+- Quitar "Vista" a una película con varios visionados pide confirmación, porque borra todo su historial.
+- La pestaña Vistas tiene dos modos: **Pósters** (como antes) e **Historial** (cada visionado por meses, como el diario de Letterboxd). La búsqueda y los filtros también se aplican al historial.
+
+### Seguir viendo
+- Fila encima de la rejilla de Películas con las películas a medias que siguen en disco, de la última que viste a la primera. Se oculta al buscar o filtrar (ahí estorbaría).
+- Va dentro del contenedor de la rejilla virtualizada (como cabecera medida), así se desplaza con ella sin romper la virtualización.
+- Tarjetas apaisadas con el fondo de la película, el progreso y lo que queda; el botón de reproducir continúa directamente y la X olvida la posición.
+- Mientras se ve, el aviso de la esquina, la ficha y la barra del póster muestran el progreso en directo (evento `playback`), sin recargar la biblioteca cada 2 s.

@@ -1791,3 +1791,388 @@ input[type="range"]:active::-webkit-slider-thumb {
   color: #fff;
 }
 .unmatched-dot { flex-shrink: 0; align-self: center; }
+
+/* ==========================================================================
+   Fase 3: seguir viendo, progreso e historial
+   ========================================================================== */
+
+/* "Seguir viendo": encima de la rejilla, se desplaza con ella */
+.grid-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+.continue {
+  padding-bottom: 26px;
+}
+.continue h2 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+.continue-wrap {
+  position: relative;
+}
+.continue-row {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  /* Margen para que el escalado al pasar el ratón no se recorte. */
+  padding: 6px 0 10px;
+  margin: -6px 0 -10px;
+}
+.continue-row::-webkit-scrollbar {
+  display: none;
+}
+.continue-card {
+  position: relative;
+  flex: 0 0 var(--card-w);
+  scroll-snap-align: start;
+}
+.continue-open {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  text-align: left;
+  transition: transform 0.35s var(--ease), box-shadow 0.35s var(--ease);
+}
+.continue-card:hover .continue-open,
+.continue-open:focus-visible {
+  transform: scale(1.03);
+  box-shadow: var(--shadow-lg);
+}
+.continue-open img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  transition: opacity 0.4s var(--ease);
+}
+.continue-open img.loaded {
+  opacity: 1;
+}
+.continue-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 35%, rgba(0, 0, 0, 0.82) 100%);
+}
+.continue-text {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  color: #fff;
+}
+.continue-text strong {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.continue-text small {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.continue-open .progress {
+  left: 12px;
+  right: 12px;
+}
+.continue-play {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  padding-left: 3px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 0.25s, transform 0.3s var(--ease);
+}
+.continue-card:hover .continue-play,
+.continue-play:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+.continue-play:hover {
+  background: var(--accent-hover);
+}
+.continue-remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.continue-card:hover .continue-remove,
+.continue-remove:focus-visible {
+  opacity: 1;
+}
+.continue-remove:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.8);
+}
+.continue-arrow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 44px;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.continue-wrap:hover .continue-arrow {
+  opacity: 1;
+}
+.continue-arrow.left {
+  left: -28px;
+  background: linear-gradient(90deg, var(--bg) 20%, transparent);
+}
+.continue-arrow.right {
+  right: -28px;
+  background: linear-gradient(270deg, var(--bg) 20%, transparent);
+}
+
+/* Progreso en la ficha */
+.detail-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  max-width: 560px;
+  color: var(--text-2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.detail-progress-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-hover);
+  overflow: hidden;
+}
+.detail-progress-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.6s var(--ease);
+}
+.detail-progress-text {
+  white-space: nowrap;
+}
+
+/* Etiquetas pequeñas (revisionado, origen del visionado) */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tag.subtle {
+  background: var(--surface);
+  color: var(--text-3);
+  font-weight: 500;
+}
+.date-input {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  color-scheme: inherit;
+}
+.entry-date {
+  text-align: left;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s;
+}
+.entry-date:hover {
+  color: var(--accent);
+}
+
+/* Historial en la ficha */
+.history-entries {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 760px;
+}
+.history-entries li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px 6px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.history-entries .entry-date {
+  flex: 1;
+  min-width: 0;
+}
+.history-entries .entry-date::first-letter {
+  text-transform: uppercase;
+}
+.history-tags {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.history-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Pestaña Vistas → Historial */
+.view-mode {
+  margin-left: auto;
+}
+.history {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 8px 28px 40px;
+}
+.history-month {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 400px;
+  margin-bottom: 26px;
+}
+.history-month h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+}
+.history-month h3::first-letter {
+  text-transform: uppercase;
+}
+.history-month h3 small {
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 12.5px;
+  font-weight: 400;
+}
+.history-month ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 8px 6px 6px;
+  border-radius: var(--radius);
+  transition: background 0.15s;
+}
+.history-row:hover {
+  background: var(--surface);
+}
+.history-row > .icon-btn {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.history-row:hover > .icon-btn,
+.history-row > .icon-btn:focus-visible {
+  opacity: 1;
+}
+.history-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 40px;
+  line-height: 1.15;
+}
+.history-day strong {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.history-day small {
+  color: var(--text-3);
+  font-size: 11.5px;
+  text-transform: capitalize;
+}
+.history-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+}
+.history-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface);
+}
+.history-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.history-thumb .poster-fallback {
+  padding: 4px;
+  font-size: 0;
+}
+.history-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.history-title strong {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.history-open:hover .history-title strong {
+  color: var(--accent);
+}
+.history-title small {
+  color: var(--text-3);
+  font-size: 12.5px;
+}

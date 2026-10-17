@@ -1,8 +1,20 @@
 import { create } from "zustand";
-import { api, type AppInfo, type Item, type Library, type Notice, type ScanProgress, type TransferInfo } from "./api";
+import {
+  api,
+  type AppInfo,
+  type Item,
+  type Library,
+  type Notice,
+  type NowPlaying,
+  type ScanProgress,
+  type TransferInfo,
+} from "./api";
 import { emptyFilters, type Filters, type SortKey, type View, SORT_KEYS } from "./filters";
 
 export type ThemeSetting = "system" | "dark" | "light";
+
+/** Cómo se ve la pestaña Vistas: rejilla de pósters o historial por fechas. */
+export type WatchedMode = "grid" | "history";
 
 /** Diálogos que se abren encima de todo. */
 export type Dialog =
@@ -41,6 +53,7 @@ interface State {
   filters: Filters;
   gridSize: number;
   filtersOpen: boolean;
+  watchedMode: WatchedMode;
 
   hoveredId: number | null;
   selectedId: number | null;
@@ -52,6 +65,7 @@ interface State {
   choice: Choice | null;
   transfers: TransferInfo[];
   notices: ToastNotice[];
+  playing: NowPlaying[];
 
   init: () => Promise<void>;
   refreshItems: () => Promise<void>;
@@ -64,6 +78,7 @@ interface State {
   clearFilters: () => void;
   setGridSize: (size: number) => void;
   toggleFilters: () => void;
+  setWatchedMode: (mode: WatchedMode) => void;
   hover: (id: number | null) => void;
   select: (id: number | null) => void;
   openSettings: (open: boolean) => void;
@@ -73,6 +88,7 @@ interface State {
   setTransfers: (t: TransferInfo[]) => void;
   pushNotice: (n: Notice) => void;
   dropNotice: (id: number) => void;
+  setPlaying: (p: NowPlaying[]) => void;
 }
 
 let noticeId = 0;
@@ -102,6 +118,7 @@ export const useStore = create<State>((set, get) => ({
   filters: emptyFilters(),
   gridSize: 180,
   filtersOpen: false,
+  watchedMode: "grid",
 
   hoveredId: null,
   selectedId: null,
@@ -113,6 +130,7 @@ export const useStore = create<State>((set, get) => ({
   choice: null,
   transfers: [],
   notices: [],
+  playing: [],
 
   init: async () => {
     const [info, settings, items, libraries] = await Promise.all([
@@ -136,6 +154,7 @@ export const useStore = create<State>((set, get) => ({
       sortDesc: settings.sortDesc ? settings.sortDesc === "true" : true,
       gridSize: Number(settings.gridSize) || 180,
       filtersOpen: settings.filtersOpen === "true",
+      watchedMode: settings.watchedMode === "history" ? "history" : "grid",
     });
   },
 
@@ -167,6 +186,10 @@ export const useStore = create<State>((set, get) => ({
     set({ filtersOpen });
     persist("filtersOpen", String(filtersOpen));
   },
+  setWatchedMode: (watchedMode) => {
+    set({ watchedMode });
+    persist("watchedMode", watchedMode);
+  },
   hover: (hoveredId) => set({ hoveredId }),
   select: (selectedId) => set({ selectedId }),
   openSettings: (settingsOpen) => set({ settingsOpen }),
@@ -186,4 +209,5 @@ export const useStore = create<State>((set, get) => ({
     window.setTimeout(() => get().dropNotice(id), 8000);
   },
   dropNotice: (id) => set({ notices: get().notices.filter((n) => n.id !== id) }),
+  setPlaying: (playing) => set({ playing }),
 }));

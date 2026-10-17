@@ -203,6 +203,17 @@ export function Settings() {
                 <option value="__custom">{t("settings.playerOther")}</option>
               </select>
             </label>
+            <label className="field">
+              <span>{t("settings.watchedThreshold")}</span>
+              <select value={settings.watchedThreshold ?? "90"} onChange={(e) => setSetting("watchedThreshold", e.target.value)}>
+                {["75", "80", "85", "90", "95", "98"].map((v) => (
+                  <option key={v} value={v}>
+                    {v} %
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="hint">{t("settings.trackingHint")}</p>
           </Section>
 
           <Section title={t("settings.appearance")}>

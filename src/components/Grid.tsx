@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Item } from "../api";
 import { useElementWidth } from "../hooks";
 import { useStore } from "../store";
@@ -12,10 +12,20 @@ const infoHeight = (d: CardDisplay) => (d.title || d.year ? 8 + 22 : 0);
 /**
  * Rejilla virtualizada por filas: solo existen en el DOM las filas visibles (más unas pocas
  * de margen), así que va igual de fluida con 50 películas que con 10 000.
+ * `header` (p. ej. "Seguir viendo") va encima de la primera fila y se desplaza con la rejilla.
  */
-export function Grid({ items }: { items: Item[] }) {
+export function Grid({ items, header }: { items: Item[]; header?: ReactNode }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const width = useElementWidth(scrollRef);
+  const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null);
+  const [measured, setMeasured] = useState(0);
+  useEffect(() => {
+    if (!headerEl) return;
+    const ro = new ResizeObserver(([entry]) => setMeasured(entry.borderBoxSize[0]?.blockSize ?? entry.contentRect.height));
+    ro.observe(headerEl);
+    return () => ro.disconnect();
+  }, [headerEl]);
+  const headerHeight = header ? measured : 0;
   const gridSize = useStore((s) => s.gridSize);
   const view = useStore((s) => s.view);
   const settings = useStore((s) => s.settings);
@@ -41,13 +51,13 @@ export function Grid({ items }: { items: Item[] }) {
     getScrollElement: () => scrollRef.current,
     estimateSize: () => rowHeight,
     overscan: 3,
-    paddingStart: 8,
+    paddingStart: 8 + headerHeight,
     paddingEnd: 40,
   });
 
   useEffect(() => {
     virtualizer.measure();
-  }, [rowHeight, cols, virtualizer]);
+  }, [rowHeight, cols, headerHeight, virtualizer]);
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
   }, [view]);
@@ -55,6 +65,11 @@ export function Grid({ items }: { items: Item[] }) {
   return (
     <div ref={scrollRef} className="grid-scroll" onMouseLeave={() => useStore.getState().hover(null)}>
       <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+        {header && (
+          <div ref={setHeaderEl} className="grid-header" style={{ padding: `8px ${PADDING}px 0` }}>
+            {header}
+          </div>
+        )}
         {virtualizer.getVirtualItems().map((row) => (
           <div
             key={row.key}

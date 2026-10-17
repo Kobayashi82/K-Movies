@@ -120,6 +120,8 @@ pub struct ItemSummary {
     pub last_watched: Option<String>,
     pub position: Option<f64>,
     pub duration: Option<f64>,
+    /// Cuándo se guardó la posición (para ordenar "Seguir viendo").
+    pub playback_at: Option<String>,
 }
 
 fn json_col(r: &rusqlite::Row, idx: usize) -> rusqlite::Result<serde_json::Value> {
@@ -144,7 +146,7 @@ pub fn list_items(conn: &Connection, cache_dir: &Path) -> Result<Vec<ItemSummary
                     WHERE ip.item_id = i.id AND ip.role = 'cast' ORDER BY ip.ord LIMIT 15)),
                 (SELECT COUNT(*) FROM history h WHERE h.item_id = i.id),
                 (SELECT MAX(h.watched_at) FROM history h WHERE h.item_id = i.id),
-                pb.position, pb.duration
+                pb.position, pb.duration, pb.updated_at
          FROM items i LEFT JOIN playback pb ON pb.item_id = i.id",
     )?;
     let cache = |name: Option<String>| name.map(|n| cache_dir.join(n).to_string_lossy().into_owned());
@@ -180,6 +182,7 @@ pub fn list_items(conn: &Connection, cache_dir: &Path) -> Result<Vec<ItemSummary
             last_watched: r.get(27)?,
             position: r.get(28)?,
             duration: r.get(29)?,
+            playback_at: r.get(30)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -251,8 +254,138 @@ pub fn item_detail(conn: &Connection, id: i64) -> Result<ItemDetail> {
     Ok(ItemDetail { overview, tagline, original_language, tmdb_votes, trailer_key, files, people })
 }
 
-pub fn largest_file(conn: &Connection, item_id: i64) -> Result<Option<String>> {
+pub fn largest_file(conn: &Connection, item_id: i64) -> Result<Option<(i64, String)>> {
     Ok(conn
-        .query_row("SELECT path FROM files WHERE item_id = ?1 ORDER BY size DESC LIMIT 1", [item_id], |r| r.get(0))
+        .query_row("SELECT id, path FROM files WHERE item_id = ?1 ORDER BY size DESC LIMIT 1", [item_id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
         .optional()?)
+}
+
+// ---------------------------------------------------------------------------
+// Historial y progreso
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+    pub id: i64,
+    pub item_id: i64,
+    pub watched_at: String,
+    pub rating: Option<f64>,
+    pub rewatch: bool,
+    pub source: String,
+}
+
+/// Visionados, del más reciente al más antiguo. Con `item_id`, solo los de esa película.
+pub fn history(conn: &Connection, item_id: Option<i64>) -> Result<Vec<HistoryEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, item_id, watched_at, rating, rewatch, source FROM history
+         WHERE ?1 IS NULL OR item_id = ?1 ORDER BY watched_at DESC, id DESC",
+    )?;
+    let rows = stmt.query_map([item_id], |r| {
+        Ok(HistoryEntry {
+            id: r.get(0)?,
+            item_id: r.get(1)?,
+            watched_at: r.get(2)?,
+            rating: r.get(3)?,
+            rewatch: r.get(4)?,
+            source: r.get(5)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Añade un visionado. Sin `date` (`AAAA-MM-DD`) es ahora mismo, y entonces la película deja de
+/// estar "a medias": se borra la posición guardada.
+pub fn add_watch(conn: &Connection, item_id: i64, date: Option<&str>, source: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO history (item_id, watched_at, source) VALUES (?1, COALESCE(?2, datetime('now')), ?3)",
+        params![item_id, date, source],
+    )?;
+    if date.is_none() {
+        conn.execute("DELETE FROM playback WHERE item_id = ?1", [item_id])?;
+    }
+    fix_rewatch(conn, item_id)
+}
+
+/// Todos los visionados de una película son "revisionado" menos el primero (por fecha).
+pub fn fix_rewatch(conn: &Connection, item_id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE history SET rewatch = EXISTS (
+             SELECT 1 FROM history h WHERE h.item_id = history.item_id
+               AND (h.watched_at < history.watched_at OR (h.watched_at = history.watched_at AND h.id < history.id)))
+         WHERE item_id = ?1",
+        [item_id],
+    )?;
+    Ok(())
+}
+
+pub fn save_position(conn: &Connection, item_id: i64, file_id: i64, position: f64, duration: f64) -> Result<()> {
+    conn.execute(
+        "INSERT INTO playback (item_id, file_id, position, duration, updated_at)
+         VALUES (?1, ?2, ?3, ?4, datetime('now'))
+         ON CONFLICT(item_id) DO UPDATE SET file_id = excluded.file_id, position = excluded.position,
+             duration = excluded.duration, updated_at = excluded.updated_at",
+        params![item_id, file_id, position, duration],
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn conn_with_item() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        conn.execute("INSERT INTO items (id, title) VALUES (1, 'Buddy')", []).unwrap();
+        conn.execute("INSERT INTO files (id, item_id, path, added_at) VALUES (7, 1, 'C:/Buddy.mp4', '2026-01-01')", [])
+            .unwrap();
+        conn
+    }
+
+    fn rewatch_flags(conn: &Connection) -> Vec<(String, bool)> {
+        history(conn, Some(1)).unwrap().into_iter().map(|e| (e.watched_at, e.rewatch)).collect()
+    }
+
+    #[test]
+    fn watching_now_clears_the_saved_position() {
+        let conn = conn_with_item();
+        save_position(&conn, 1, 7, 1800.0, 6000.0).unwrap();
+        save_position(&conn, 1, 7, 2400.0, 6000.0).unwrap();
+        let pos: f64 = conn.query_row("SELECT position FROM playback WHERE item_id = 1", [], |r| r.get(0)).unwrap();
+        assert_eq!(pos, 2400.0);
+
+        add_watch(&conn, 1, None, "player").unwrap();
+        let left: i64 = conn.query_row("SELECT COUNT(*) FROM playback", [], |r| r.get(0)).unwrap();
+        assert_eq!(left, 0);
+        assert_eq!(history(&conn, Some(1)).unwrap()[0].source, "player");
+    }
+
+    #[test]
+    fn a_past_date_keeps_the_position() {
+        let conn = conn_with_item();
+        save_position(&conn, 1, 7, 1800.0, 6000.0).unwrap();
+        add_watch(&conn, 1, Some("2019-05-01"), "manual").unwrap();
+        let left: i64 = conn.query_row("SELECT COUNT(*) FROM playback", [], |r| r.get(0)).unwrap();
+        assert_eq!(left, 1);
+    }
+
+    #[test]
+    fn only_the_earliest_viewing_is_not_a_rewatch() {
+        let conn = conn_with_item();
+        add_watch(&conn, 1, Some("2024-03-10"), "manual").unwrap();
+        add_watch(&conn, 1, Some("2021-07-02"), "manual").unwrap();
+        // La de 2021 se añadió después pero es la primera: la de 2024 pasa a ser revisionado.
+        assert_eq!(
+            rewatch_flags(&conn),
+            vec![("2024-03-10".into(), true), ("2021-07-02".into(), false)]
+        );
+
+        let first: i64 =
+            conn.query_row("SELECT id FROM history WHERE watched_at = '2021-07-02'", [], |r| r.get(0)).unwrap();
+        conn.execute("DELETE FROM history WHERE id = ?1", [first]).unwrap();
+        fix_rewatch(&conn, 1).unwrap();
+        assert_eq!(rewatch_flags(&conn), vec![("2024-03-10".into(), false)]);
+    }
 }

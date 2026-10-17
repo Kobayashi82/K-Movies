@@ -3,6 +3,7 @@ mod images;
 mod imdb;
 mod library;
 mod parse;
+mod playback;
 mod players;
 mod scanner;
 mod tmdb;
@@ -24,6 +25,7 @@ pub struct AppState {
     http: reqwest::Client,
     scanning: AtomicBool,
     transfers: transfers::Transfers,
+    sessions: playback::Sessions,
 }
 
 impl AppState {
@@ -150,15 +152,63 @@ fn set_watchlist(app: AppHandle, state: State<AppState>, id: i64, value: bool) -
 fn set_watched(app: AppHandle, state: State<AppState>, id: i64, value: bool) -> CmdResult<()> {
     let conn = state.db();
     if value {
-        conn.execute(
-            "INSERT INTO history (item_id, watched_at, rewatch, source)
-             VALUES (?1, datetime('now'), EXISTS (SELECT 1 FROM history WHERE item_id = ?1), 'manual')",
-            [id],
-        )
+        db::add_watch(&conn, id, None, "manual").map_err(err)?;
     } else {
-        conn.execute("DELETE FROM history WHERE item_id = ?1", [id])
+        conn.execute("DELETE FROM history WHERE item_id = ?1", [id]).map_err(err)?;
     }
-    .map_err(err)?;
+    db::prune_orphans(&conn).map_err(err)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn list_history(state: State<AppState>, item_id: Option<i64>) -> CmdResult<Vec<db::HistoryEntry>> {
+    db::history(&state.db(), item_id).map_err(err)
+}
+
+static DATE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap());
+
+/// Añade un visionado en una fecha concreta (`AAAA-MM-DD`) o, sin fecha, ahora.
+#[tauri::command]
+fn add_history(app: AppHandle, state: State<AppState>, id: i64, date: Option<String>) -> CmdResult<()> {
+    let date = date.filter(|d| !d.is_empty());
+    if date.as_deref().is_some_and(|d| !DATE.is_match(d)) {
+        return Err("bad_date".into());
+    }
+    db::add_watch(&state.db(), id, date.as_deref(), "manual").map_err(err)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn set_history_date(app: AppHandle, state: State<AppState>, id: i64, date: String) -> CmdResult<()> {
+    if !DATE.is_match(&date) {
+        return Err("bad_date".into());
+    }
+    let conn = state.db();
+    let item: i64 = conn.query_row("SELECT item_id FROM history WHERE id = ?1", [id], |r| r.get(0)).map_err(err)?;
+    conn.execute("UPDATE history SET watched_at = ?2 WHERE id = ?1", rusqlite::params![id, date]).map_err(err)?;
+    db::fix_rewatch(&conn, item).map_err(err)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_history(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<()> {
+    let conn = state.db();
+    let item: i64 = conn.query_row("SELECT item_id FROM history WHERE id = ?1", [id], |r| r.get(0)).map_err(err)?;
+    conn.execute("DELETE FROM history WHERE id = ?1", [id]).map_err(err)?;
+    db::fix_rewatch(&conn, item).map_err(err)?;
+    db::prune_orphans(&conn).map_err(err)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+/// Olvida por dónde ibas (la quita de "Seguir viendo").
+#[tauri::command]
+fn clear_progress(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<()> {
+    let conn = state.db();
+    conn.execute("DELETE FROM playback WHERE item_id = ?1", [id]).map_err(err)?;
     db::prune_orphans(&conn).map_err(err)?;
     let _ = app.emit("library-changed", ());
     Ok(())
@@ -218,25 +268,15 @@ fn detect_players() -> Vec<players::Player> {
     players::detect()
 }
 
+/// Reproduce (continuando donde se quedó salvo `from_start`) y sigue el progreso si se puede.
 #[tauri::command]
-fn play_item(state: State<AppState>, id: i64) -> CmdResult<()> {
-    let (file, player, position) = {
-        let conn = state.db();
-        let file = db::largest_file(&conn, id).map_err(err)?.ok_or("file_missing")?;
-        let player = db::setting(&conn, "playerPath").map_err(err)?.filter(|p| !p.is_empty());
-        let position: Option<f64> = conn
-            .query_row("SELECT position FROM playback WHERE item_id = ?1", [id], |r| r.get(0))
-            .ok();
-        (file, player, position)
-    };
-    let player = player
-        .map(PathBuf::from)
-        .or_else(|| players::detect().into_iter().next().map(|p| PathBuf::from(p.path)));
-    match player {
-        Some(player) => players::launch(&player, Path::new(&file), position).map_err(err),
-        // Sin reproductor configurado ni detectado: el predeterminado de Windows.
-        None => tauri_plugin_opener::open_path(&file, None::<&str>).map_err(err),
-    }
+fn play_item(app: AppHandle, id: i64, file_id: Option<i64>, from_start: Option<bool>) -> CmdResult<()> {
+    playback::play(&app, id, file_id, from_start.unwrap_or(false)).map_err(err)
+}
+
+#[tauri::command]
+fn now_playing(app: AppHandle) -> Vec<playback::NowPlaying> {
+    playback::list(&app)
 }
 
 fn file_path(state: &AppState, file_id: i64) -> CmdResult<PathBuf> {
@@ -370,6 +410,7 @@ pub fn run() {
                 http,
                 scanning: AtomicBool::new(false),
                 transfers: transfers::Transfers::default(),
+                sessions: playback::Sessions::default(),
             });
             Ok(())
         })
@@ -386,6 +427,12 @@ pub fn run() {
             get_item,
             set_watchlist,
             set_watched,
+            list_history,
+            add_history,
+            set_history_date,
+            delete_history,
+            clear_progress,
+            now_playing,
             validate_tmdb_key,
             search_tmdb,
             identify_item,

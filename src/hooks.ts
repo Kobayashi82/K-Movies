@@ -1,8 +1,30 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { Item } from "./api";
-import { inView, matches, sortItems, type View } from "./filters";
+import type { Item, NowPlaying } from "./api";
+import { activeFilterCount, inView, matches, sortItems, type View } from "./filters";
 import { useStore } from "./store";
+
+/** Películas a medias que siguen en disco, de la última que se vio a la primera. */
+export function useContinueItems(): Item[] {
+  const items = useStore((s) => s.items);
+  return useMemo(
+    () =>
+      items
+        .filter((i) => i.position != null && i.duration && i.fileCount > 0)
+        .sort((a, b) => (b.playbackAt ?? "").localeCompare(a.playbackAt ?? "")),
+    [items],
+  );
+}
+
+/** ¿Se enseña "Seguir viendo"? Solo en Películas y sin buscar ni filtrar (ahí estorbaría). */
+export function useShowContinue(): boolean {
+  return useStore((s) => s.view === "library" && !s.query.trim() && activeFilterCount(s.filters) === 0);
+}
+
+/** La sesión de reproducción en curso de esa película, si la hay. */
+export function useNowPlaying(itemId: number): NowPlaying | undefined {
+  return useStore((s) => s.playing.find((p) => p.itemId === itemId));
+}
 
 /** Películas de la pestaña actual, antes de filtrar (sirve para calcular las opciones de filtro). */
 export function useViewItems(): Item[] {

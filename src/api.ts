@@ -32,6 +32,33 @@ export interface Item {
   lastWatched: string | null;
   position: number | null;
   duration: number | null;
+  /** Cuándo se guardó la posición (para ordenar "Seguir viendo"). */
+  playbackAt: string | null;
+}
+
+/** Un visionado del historial. */
+export interface HistoryEntry {
+  id: number;
+  itemId: number;
+  /** `AAAA-MM-DD` o fecha y hora en UTC. */
+  watchedAt: string;
+  rating: number | null;
+  rewatch: boolean;
+  source: "manual" | "player" | "letterboxd" | "kmovies4";
+}
+
+/** Lo que se está reproduciendo ahora. */
+export interface NowPlaying {
+  itemId: number;
+  title: string;
+  player: string;
+  /** Se sabe por dónde va (VLC); con otros reproductores solo se sabe que está abierto. */
+  tracked: boolean;
+  position: number | null;
+  duration: number | null;
+  paused: boolean;
+  /** Ya se ha marcado como vista en esta sesión. */
+  watched: boolean;
 }
 
 export interface Person {
@@ -97,7 +124,14 @@ export interface TransferInfo {
 }
 
 export interface Notice {
-  kind: "pendingAvailable" | "alreadyWatched" | "transferDone" | "transferError";
+  kind:
+    | "pendingAvailable"
+    | "alreadyWatched"
+    | "transferDone"
+    | "transferError"
+    | "markedWatched"
+    | "askFinished"
+    | "playError";
   title: string;
   itemId: number | null;
   detail: string | null;
@@ -127,7 +161,14 @@ export const api = {
   setWatched: (id: number, value: boolean) => invoke<void>("set_watched", { id, value }),
   validateTmdbKey: (key: string) => invoke<boolean>("validate_tmdb_key", { key }),
   detectPlayers: () => invoke<Player[]>("detect_players"),
-  playItem: (id: number) => invoke<void>("play_item", { id }),
+  playItem: (id: number, opts: { fileId?: number; fromStart?: boolean } = {}) =>
+    invoke<void>("play_item", { id, fileId: opts.fileId, fromStart: opts.fromStart }),
+  nowPlaying: () => invoke<NowPlaying[]>("now_playing"),
+  listHistory: (itemId?: number) => invoke<HistoryEntry[]>("list_history", { itemId }),
+  addHistory: (id: number, date?: string) => invoke<void>("add_history", { id, date }),
+  setHistoryDate: (id: number, date: string) => invoke<void>("set_history_date", { id, date }),
+  deleteHistory: (id: number) => invoke<void>("delete_history", { id }),
+  clearProgress: (id: number) => invoke<void>("clear_progress", { id }),
   searchTmdb: (query: string, year: number | null) => invoke<Candidate[]>("search_tmdb", { query, year }),
   identifyItem: (id: number, tmdbId: number) => invoke<number>("identify_item", { id, tmdbId }),
   addItem: (tmdbId: number, list: "pending" | "watched") => invoke<number>("add_item", { tmdbId, list }),
@@ -152,7 +193,10 @@ export const onTransfers = (cb: (t: TransferInfo[]) => void): Promise<UnlistenFn
 
 export const onNotice = (cb: (n: Notice) => void): Promise<UnlistenFn> => listen<Notice>("notice", (e) => cb(e.payload));
 
-export const onLibraryChanged = (cb: () => void): Promise<UnlistenFn> => listen("library-changed", () => cb());
+export const onPlayback = (cb: (p: NowPlaying[]) => void): Promise<UnlistenFn> =>
+  listen<NowPlaying[]>("playback", (e) => cb(e.payload));
+
+export const onLibraryChanged =(cb: () => void): Promise<UnlistenFn> => listen("library-changed", () => cb());
 
 /** Ruta local de la caché → URL que puede cargar el WebView. */
 export const fileUrl = (path: string | null) => (path ? convertFileSrc(path) : null);
@@ -163,5 +207,6 @@ export const tmdbImage = (path: string | null, size = "w185") =>
 /** Imagen de TMDb servida desde la caché local (protocolo `kimg`; la descarga la primera vez). */
 export const cachedTmdbImage = (path: string | null, size = "w185") => (path ? `http://kimg.localhost/${size}${path}` : null);
 
-/** Las fechas de SQLite (`AAAA-MM-DD HH:MM:SS`) están en UTC. */
-export const parseDbDate = (s: string | null) => (s ? new Date(s.replace(" ", "T") + (s.length > 10 ? "Z" : "")) : null);
+/** Las fechas y horas de SQLite (`AAAA-MM-DD HH:MM:SS`) están en UTC; las fechas sin hora son días locales. */
+export const parseDbDate = (s: string | null) =>
+  s ? new Date(s.length > 10 ? s.replace(" ", "T") + "Z" : `${s}T00:00`) : null;

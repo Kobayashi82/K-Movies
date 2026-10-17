@@ -1,6 +1,7 @@
 import { Check, Play } from "lucide-react";
 import { memo, useState } from "react";
 import { fileUrl, type Item } from "../api";
+import { useNowPlaying } from "../hooks";
 import { useStore } from "../store";
 import { formatNumber, heroTransition, hueOf } from "../util";
 
@@ -43,7 +44,11 @@ export const PosterCard = memo(function PosterCard({ item, display }: { item: It
     { source: "tmdb", label: "TMDb", value: item.tmdbRating },
   ].filter((r) => r.value != null && (display.rating === "both" || display.rating === r.source));
   const year = display.year && item.year ? <span className="card-year">{item.year}</span> : null;
-  const progress = item.position && item.duration ? item.position / item.duration : 0;
+  // Mientras se ve, la barra avanza en directo.
+  const live = useNowPlaying(item.id);
+  const position = live?.tracked ? live.position : item.position;
+  const duration = live?.tracked ? live.duration : item.duration;
+  const progress = position && duration ? position / duration : 0;
   const open = (e: React.MouseEvent<HTMLButtonElement>) => {
     const poster = e.currentTarget.querySelector<HTMLElement>(".poster");
     heroTransition(poster, () => useStore.getState().select(item.id));
@@ -78,7 +83,7 @@ export const PosterCard = memo(function PosterCard({ item, display }: { item: It
             <Play size={22} fill="currentColor" strokeWidth={0} />
           </span>
         )}
-        {progress > 0.01 && (
+        {progress > 0.01 && !live?.watched && (
           <span className="progress">
             <span style={{ width: `${Math.min(progress, 1) * 100}%` }} />
           </span>
