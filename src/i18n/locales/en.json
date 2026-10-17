@@ -147,11 +147,8 @@
     "posterRating_tmdb": "TMDb",
     "posterRating_none": "None",
     "posterTitle": "Show the title under the poster",
-    "posterYear": "Year next to the title",
-    "posterRating_both": "Both",
-    "posterYear_before": "Before",
-    "posterYear_after": "After",
-    "posterYear_none": "Hidden"
+    "posterYear": "Show the year next to the title",
+    "posterRating_both": "Both"
   },
   "welcome": {
     "title": "Welcome to K-Movies",

@@ -93,5 +93,5 @@ Registro de decisiones tomadas durante el desarrollo, como pide `ESPECIFICACION.
 
 ### Interfaz
 - Confirmaciones con un **diálogo propio** con el estilo de la app, en lugar de los diálogos nativos de Windows.
-- Opciones de las tarjetas: nota en el póster (IMDb, TMDb, ambas o ninguna), título visible u oculto, y año antes o después del título (en la misma fila) u oculto.
+- Opciones de las tarjetas: nota en el póster (IMDb, TMDb, ambas en la misma fila, o ninguna), título visible u oculto, y año visible u oculto (siempre a la derecha del título, en la misma fila).
 - `KMOVIES_DATA_DIR` permite arrancar la app con otra carpeta de datos (para probar sin tocar la biblioteca real).

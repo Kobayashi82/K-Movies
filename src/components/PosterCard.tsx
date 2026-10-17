@@ -34,7 +34,7 @@ export function PosterImage({ item, eager = false }: { item: Item; eager?: boole
 export interface CardDisplay {
   rating: "imdb" | "tmdb" | "both" | "none";
   title: boolean;
-  year: "before" | "after" | "none";
+  year: boolean;
 }
 
 export const PosterCard = memo(function PosterCard({ item, display }: { item: Item; display: CardDisplay }) {
@@ -42,7 +42,7 @@ export const PosterCard = memo(function PosterCard({ item, display }: { item: It
     { source: "imdb", label: "IMDb", value: item.imdbRating },
     { source: "tmdb", label: "TMDb", value: item.tmdbRating },
   ].filter((r) => r.value != null && (display.rating === "both" || display.rating === r.source));
-  const year = display.year !== "none" && item.year ? <span className="card-year">{item.year}</span> : null;
+  const year = display.year && item.year ? <span className="card-year">{item.year}</span> : null;
   const progress = item.position && item.duration ? item.position / item.duration : 0;
   const open = (e: React.MouseEvent<HTMLButtonElement>) => {
     const poster = e.currentTarget.querySelector<HTMLElement>(".poster");
@@ -84,15 +84,14 @@ export const PosterCard = memo(function PosterCard({ item, display }: { item: It
           </span>
         )}
       </div>
-      {(display.title || display.year !== "none") && (
+      {(display.title || display.year) && (
         <div className="card-info">
-          {display.year === "before" && year}
           {display.title && (
             <span className="card-title" title={item.title}>
               {item.title}
             </span>
           )}
-          {display.year === "after" && year}
+          {year}
           {item.matched === 0 && <span className="unmatched-dot" />}
         </div>
       )}

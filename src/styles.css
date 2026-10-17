@@ -759,9 +759,9 @@ input[type="range"]:active::-webkit-slider-thumb {
   position: absolute;
   top: 8px;
   left: 8px;
+  right: 36px;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 4px;
 }
 .rating-badge {

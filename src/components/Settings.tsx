@@ -248,20 +248,14 @@ export function Settings() {
               <input type="checkbox" checked={settings.posterTitle !== "false"} onChange={(e) => setSetting("posterTitle", String(e.target.checked))} />
               {t("settings.posterTitle")}
             </label>
-            <div className="field">
-              <span>{t("settings.posterYear")}</span>
-              <div className="segmented">
-                {(["before", "after", "none"] as const).map((y) => (
-                  <button
-                    key={y}
-                    className={(["before", "none"].includes(settings.posterYear) ? settings.posterYear : "after") === y ? "active" : undefined}
-                    onClick={() => setSetting("posterYear", y)}
-                  >
-                    {t(`settings.posterYear_${y}`)}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <label className="check settings-check">
+              <input
+                type="checkbox"
+                checked={settings.posterYear !== "false" && settings.posterYear !== "none"}
+                onChange={(e) => setSetting("posterYear", String(e.target.checked))}
+              />
+              {t("settings.posterYear")}
+            </label>
           </Section>
 
           <Section title={t("settings.about")}>
