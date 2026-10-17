@@ -6,6 +6,7 @@ import { api, parseDbDate, type HistoryEntry, type Item } from "../api";
 import { useStore } from "../store";
 import { formatDate } from "../util";
 import { PosterImage } from "./PosterCard";
+import { Stars } from "./Stars";
 
 /** Fecha local en el formato de `<input type="date">`. */
 function inputDate(d: Date | null = new Date()): string {
@@ -74,6 +75,17 @@ function EntryDate({ entry, children }: { entry: HistoryEntry; children: React.R
   );
 }
 
+/** Nota del visionado; se ve al momento, sin esperar a que se recargue el historial. */
+function EntryRating({ entry, size }: { entry: HistoryEntry; size?: number }) {
+  const [value, setValue] = useState(entry.rating);
+  useEffect(() => setValue(entry.rating), [entry.rating]);
+  const change = (v: number | null) => {
+    setValue(v);
+    api.setHistoryRating(entry.id, v).catch(() => setValue(entry.rating));
+  };
+  return <Stars value={value} onChange={change} size={size} />;
+}
+
 function DeleteEntry({ entry }: { entry: HistoryEntry }) {
   const { t } = useTranslation();
   return (
@@ -126,6 +138,7 @@ export function ItemHistory({ item }: { item: Item }) {
               <EntryDate entry={e}>
                 {formatDate(d, hasTime(e) ? { dateStyle: "full", timeStyle: "short" } : { dateStyle: "full" })}
               </EntryDate>
+              <EntryRating entry={e} />
               <span className="history-tags">
                 {e.rewatch && (
                   <span className="tag">
@@ -247,6 +260,7 @@ export function HistoryList({ items }: { items: Item[] }) {
                       </small>
                     </span>
                   </button>
+                  <EntryRating entry={entry} size={14} />
                   <span className="history-tags">
                     {entry.rewatch && (
                       <span className="tag">

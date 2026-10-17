@@ -34,6 +34,8 @@ export interface Item {
   duration: number | null;
   /** Cuándo se guardó la posición (para ordenar "Seguir viendo"). */
   playbackAt: string | null;
+  /** Tu nota (0,5–5): la del visionado más reciente que tenga. */
+  myRating: number | null;
 }
 
 /** Un visionado del historial. */
@@ -95,7 +97,7 @@ export interface Player {
 }
 
 export interface ScanProgress {
-  phase: "scanning" | "matching" | "refreshing" | "ratings" | "done" | "error";
+  phase: "scanning" | "matching" | "refreshing" | "ratings" | "letterboxd" | "done" | "error";
   current: number;
   total: number;
   message: string | null;
@@ -179,6 +181,25 @@ export interface PlayerState {
 /** Qué hacer si el archivo ya existe en el destino. */
 export type Conflict = "ask" | "rename" | "replace";
 
+/** Resultado de exportar a Letterboxd. */
+export interface LetterboxdExport {
+  count: number;
+  /** Más de uno si no cabe en 1 MB (el límite de su importador). */
+  files: string[];
+}
+
+/** Resultado de importar la exportación de Letterboxd. */
+export interface LetterboxdImport {
+  films: number;
+  /** Fichas nuevas (películas que no estaban). */
+  added: number;
+  viewings: number;
+  ratings: number;
+  pending: number;
+  /** "Título (año)" de las que no se encontraron. */
+  unmatched: string[];
+}
+
 export interface AppInfo {
   version: string;
   dataDir: string;
@@ -224,6 +245,10 @@ export const api = {
   addHistory: (id: number, date?: string) => invoke<void>("add_history", { id, date }),
   setHistoryDate: (id: number, date: string) => invoke<void>("set_history_date", { id, date }),
   deleteHistory: (id: number) => invoke<void>("delete_history", { id }),
+  /** Nota de un visionado (0,5–5); `null` la quita. */
+  setHistoryRating: (id: number, rating: number | null) => invoke<void>("set_history_rating", { id, rating }),
+  letterboxdExport: (path: string, onlyNew: boolean) => invoke<LetterboxdExport>("letterboxd_export", { path, onlyNew }),
+  letterboxdImport: (path: string, watchlist: boolean) => invoke<LetterboxdImport>("letterboxd_import", { path, watchlist }),
   clearProgress: (id: number) => invoke<void>("clear_progress", { id }),
   searchTmdb: (query: string, year: number | null) => invoke<Candidate[]>("search_tmdb", { query, year }),
   identifyItem: (id: number, tmdbId: number) => invoke<number>("identify_item", { id, tmdbId }),

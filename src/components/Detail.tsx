@@ -37,6 +37,7 @@ import {
 } from "../util";
 import { ItemHistory } from "./History";
 import { PosterImage } from "./PosterCard";
+import { Stars } from "./Stars";
 
 export function Detail({ item }: { item: Item }) {
   const { t } = useTranslation();
@@ -149,6 +150,12 @@ export function Detail({ item }: { item: Item }) {
                   <span className="rating-source">TMDb</span>
                   <strong>{formatNumber(item.tmdbRating)}</strong>
                 </button>
+              )}
+              {item.myRating != null && (
+                <span className="rating mine">
+                  <span className="rating-source">{t("rating.mine")}</span>
+                  <Stars value={item.myRating} size={15} />
+                </span>
               )}
             </div>
 

@@ -10,9 +10,10 @@ export type SortKey =
   | "tmdb"
   | "runtime"
   | "lastWatched"
+  | "myRating"
   | "size";
 
-export const SORT_KEYS: SortKey[] = ["title", "added", "release", "imdb", "tmdb", "runtime", "lastWatched", "size"];
+export const SORT_KEYS: SortKey[] = ["title", "added", "release", "imdb", "tmdb", "myRating", "runtime", "lastWatched", "size"];
 
 export type Range = [number, number];
 
@@ -144,6 +145,8 @@ function sortValue(item: Item, key: SortKey): number | string | null {
       return item.tmdbRating;
     case "runtime":
       return item.runtime;
+    case "myRating":
+      return item.myRating;
     case "lastWatched":
       return item.lastWatched;
     case "size":

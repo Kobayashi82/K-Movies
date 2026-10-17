@@ -253,14 +253,19 @@ fn save(app: &AppHandle, item_id: i64, file_id: i64, position: f64, duration: f6
 
 fn mark_watched(app: &AppHandle, item_id: i64) {
     let state = app.state::<AppState>();
-    let title = {
+    let (title, entry) = {
         let conn = state.db();
-        if let Err(e) = db::add_watch(&conn, item_id, None, "player") {
-            eprintln!("[playback] {e:#}");
-            return;
-        }
-        conn.query_row("SELECT title FROM items WHERE id = ?1", [item_id], |r| r.get::<_, String>(0)).unwrap_or_default()
+        let entry = match db::add_watch(&conn, item_id, None, "player") {
+            Ok(id) => id,
+            Err(e) => {
+                eprintln!("[playback] {e:#}");
+                return;
+            }
+        };
+        let title = conn.query_row("SELECT title FROM items WHERE id = ?1", [item_id], |r| r.get::<_, String>(0));
+        (title.unwrap_or_default(), entry)
     };
-    library::notice(app, "markedWatched", title, Some(item_id), None);
+    // El aviso lleva el visionado para poder ponerle nota desde ahí mismo.
+    library::notice(app, "markedWatched", title, Some(item_id), Some(entry.to_string()));
     let _ = app.emit("library-changed", ());
 }

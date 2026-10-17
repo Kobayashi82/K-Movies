@@ -8,6 +8,7 @@ import { api, parseDbDate, type Player } from "../api";
 import { available, setLanguage } from "../i18n";
 import { useStore } from "../store";
 import { formatDate } from "../util";
+import { LetterboxdSettings } from "./LetterboxdSettings";
 import { PLAYER_LANGS, SubtitleSettings } from "./SubtitleSettings";
 
 /** Idiomas preferidos del reproductor la primera vez: los de la interfaz, con subtítulos solo si hacen falta. */
@@ -235,6 +236,10 @@ export function Settings() {
               <SubtitleSettings />
             </Section>
           )}
+
+          <Section title="Letterboxd">
+            <LetterboxdSettings />
+          </Section>
 
           <Section title={t("settings.appearance")}>
             <label className="field">

@@ -40,7 +40,8 @@
     "tmdb": "Nota TMDb",
     "runtime": "Duración",
     "lastWatched": "Vista por última vez",
-    "size": "Tamaño del archivo"
+    "size": "Tamaño del archivo",
+    "myRating": "Mi nota"
   },
   "filters": {
     "genres": "Géneros",
@@ -187,6 +188,42 @@
     "unmarkMessage": "Se borrarán los {{count}} visionados de su historial.",
     "unmark": "Quitar de Vistas"
   },
+  "rating": {
+    "mine": "Mi nota",
+    "label": "Tu nota",
+    "value": "{{value}} de 5",
+    "none": "Sin nota",
+    "rate": "Ponle nota",
+    "change": "Cambiar la nota (pulsa la misma para quitarla)",
+    "rateIt": "¿Qué nota le das?"
+  },
+  "letterboxd": {
+    "intro": "Letterboxd no permite conectarse directamente: se pasa con archivos. Tus notas (estrellas) viajan en la exportación.",
+    "export": "Exportar a Letterboxd",
+    "onlyNew": "Solo lo nuevo desde la última exportación",
+    "exportButton": "Exportar historial…",
+    "exportTitle": "Guardar el historial para Letterboxd",
+    "nothingNew": "No hay visionados nuevos que exportar.",
+    "exported_one": "{{count}} visionado exportado. Súbelo en",
+    "exported_other": "{{count}} visionados exportados. Súbelos en",
+    "parts": "Van en {{count}} archivos: Letterboxd acepta 1 MB como mucho por archivo.",
+    "showFile": "Ver el archivo",
+    "import": "Importar de Letterboxd",
+    "importHint": "Descarga tu exportación (un ZIP) en Letterboxd → Ajustes → Datos → Exportar tus datos, y elígela aquí. Se añaden tus vistas, el diario y tus notas sin duplicar lo que ya tengas, así que puedes repetirlo cuando quieras:",
+    "watchlist": "Añadir también tu watchlist a Pendientes (solo las que no tienes ni has visto)",
+    "importButton": "Importar exportación…",
+    "importing": "Importando…",
+    "importTitle": "Elegir la exportación de Letterboxd",
+    "importFilter": "Exportación de Letterboxd",
+    "noKey": "Sin clave de TMDb solo se reconocen las películas que ya están en K-Movies.",
+    "imported": "{{films}} películas leídas: {{viewings}} visionados y {{ratings}} notas nuevas.",
+    "added_one": "{{count}} película nueva añadida.",
+    "added_other": "{{count}} películas nuevas añadidas.",
+    "pending_one": "{{count}} a Pendientes.",
+    "pending_other": "{{count}} a Pendientes.",
+    "unmatched_one": "{{count}} no se ha encontrado",
+    "unmatched_other": "{{count}} no se han encontrado"
+  },
   "settings": {
     "title": "Ajustes",
     "libraries": "Carpetas de películas",
@@ -277,7 +314,8 @@
     "ratings": "Actualizando notas de IMDb…",
     "badKey": "Tu clave de TMDb no es válida.",
     "failed": "El escaneo ha fallado",
-    "refreshing": "Actualizando información"
+    "refreshing": "Actualizando información",
+    "letterboxd": "Importando de Letterboxd"
   },
   "format": {
     "hoursMinutes": "{{h}} h {{m}} min",
@@ -326,7 +364,11 @@
     "not_identified": "Esta película aún no está identificada.",
     "cancelled": "Cancelado",
     "already_playing": "Esta película ya se está reproduciendo.",
-    "bad_date": "Esa fecha no es válida."
+    "bad_date": "Esa fecha no es válida.",
+    "letterboxd_empty": "No hay nada que importar en ese archivo.",
+    "letterboxd_not_export": "Ese ZIP no parece una exportación de Letterboxd.",
+    "busy": "Espera a que termine lo que se está haciendo (escaneo o importación).",
+    "no_video": "Aún no hay imagen."
   },
   "conflict": {
     "title": "Ese nombre ya existe",

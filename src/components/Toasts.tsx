@@ -1,10 +1,12 @@
 import { AlertTriangle, ArrowRightLeft, Bookmark, Check, CheckCheck, Copy, Download, Eye, Loader2, Pause, Play, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText } from "../actions";
 import { api, type NowPlaying, type ScanProgress, type TransferInfo } from "../api";
 import { useStore } from "../store";
 import { formatClock, formatSize } from "../util";
+import { Stars } from "./Stars";
 
 const enter = { initial: { opacity: 0, y: 16, scale: 0.98 }, animate: { opacity: 1, y: 0, scale: 1 }, exit: { opacity: 0, x: 40 } };
 
@@ -17,7 +19,9 @@ function ScanToast({ scan }: { scan: ScanProgress }) {
       <div className="toast-text">
         <strong>
           {t(`scan.${scan.phase}`)}
-          {(scan.phase === "matching" || scan.phase === "refreshing") && scan.total > 0 && ` ${scan.current}/${scan.total}`}
+          {(scan.phase === "matching" || scan.phase === "refreshing" || scan.phase === "letterboxd") &&
+            scan.total > 0 &&
+            ` ${scan.current}/${scan.total}`}
         </strong>
         {scan.message && scan.phase !== "scanning" && <small>{scan.message}</small>}
       </div>
@@ -101,6 +105,22 @@ function PlayingToast({ p }: { p: NowPlaying }) {
   );
 }
 
+/** Nota para lo que se acaba de ver, desde el propio aviso (`historyId`: el visionado nuevo). */
+function RateWatched({ historyId }: { historyId: number }) {
+  const { t } = useTranslation();
+  const [value, setValue] = useState<number | null>(null);
+  const change = (v: number | null) => {
+    setValue(v);
+    api.setHistoryRating(historyId, v).catch(() => setValue(null));
+  };
+  return (
+    <span className="toast-rate">
+      <small>{t("rating.rateIt")}</small>
+      <Stars value={value} onChange={change} size={17} />
+    </span>
+  );
+}
+
 const NOTICE_ICON = { pendingAvailable: Bookmark, alreadyWatched: Eye, markedWatched: CheckCheck };
 const isError = (kind: string) => kind === "transferError" || kind === "playError";
 
@@ -134,6 +154,7 @@ export function Toasts() {
                         : t(`notice.${n.kind}`, { title: n.title })}
                   </strong>
                   {error && <small className="toast-error">{errorText(n.detail)}</small>}
+                  {n.kind === "markedWatched" && n.detail && <RateWatched historyId={Number(n.detail)} />}
                 </div>
                 <button
                   className="icon-btn small"

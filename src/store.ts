@@ -206,7 +206,8 @@ export const useStore = create<State>((set, get) => ({
   pushNotice: (n) => {
     const id = ++noticeId;
     set({ notices: [...get().notices.slice(-3), { ...n, id }] });
-    window.setTimeout(() => get().dropNotice(id), 8000);
+    // El de "marcada como vista" dura más: desde él se le pone nota.
+    window.setTimeout(() => get().dropNotice(id), n.kind === "markedWatched" && n.detail ? 30000 : 8000);
   },
   dropNotice: (id) => set({ notices: get().notices.filter((n) => n.id !== id) }),
   setPlaying: (playing) => set({ playing }),

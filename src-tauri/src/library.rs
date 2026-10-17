@@ -487,6 +487,20 @@ pub async fn identify_file(app: &AppHandle, file_id: i64, tmdb_id: i64) -> Resul
     Ok(target)
 }
 
+/// El item de esa película de TMDb; si no existe, se crea (con su ficha e imágenes). Devuelve el
+/// id y si es nuevo.
+pub async fn ensure_item(app: &AppHandle, client: &Tmdb, language: &str, tmdb_id: i64) -> Result<(i64, bool)> {
+    let existing: Option<i64> = app
+        .state::<AppState>()
+        .db()
+        .query_row("SELECT id FROM items WHERE kind = 'movie' AND tmdb_id = ?1", [tmdb_id], |r| r.get(0))
+        .optional()?;
+    Ok(match existing {
+        Some(id) => (id, false),
+        None => (store_details(app, client, tmdb_id, language, None, None).await?, true),
+    })
+}
+
 /// Añade una película que no está en disco, a Pendientes (`pending`) o a Vistas (`watched`).
 pub async fn add(app: &AppHandle, tmdb_id: i64, list: &str) -> Result<i64> {
     let (client, language) = client(app)?;

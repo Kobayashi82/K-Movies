@@ -126,6 +126,8 @@ pub struct ItemSummary {
     pub duration: Option<f64>,
     /// Cuándo se guardó la posición (para ordenar "Seguir viendo").
     pub playback_at: Option<String>,
+    /// Tu nota (0,5–5): la del visionado más reciente que tenga.
+    pub my_rating: Option<f64>,
 }
 
 fn json_col(r: &rusqlite::Row, idx: usize) -> rusqlite::Result<serde_json::Value> {
@@ -150,7 +152,9 @@ pub fn list_items(conn: &Connection, cache_dir: &Path) -> Result<Vec<ItemSummary
                     WHERE ip.item_id = i.id AND ip.role = 'cast' ORDER BY ip.ord LIMIT 15)),
                 (SELECT COUNT(*) FROM history h WHERE h.item_id = i.id),
                 (SELECT MAX(h.watched_at) FROM history h WHERE h.item_id = i.id),
-                pb.position, pb.duration, pb.updated_at
+                pb.position, pb.duration, pb.updated_at,
+                (SELECT h.rating FROM history h WHERE h.item_id = i.id AND h.rating IS NOT NULL
+                 ORDER BY h.watched_at DESC, h.id DESC LIMIT 1)
          FROM items i LEFT JOIN playback pb ON pb.item_id = i.id",
     )?;
     let cache = |name: Option<String>| name.map(|n| cache_dir.join(n).to_string_lossy().into_owned());
@@ -187,6 +191,7 @@ pub fn list_items(conn: &Connection, cache_dir: &Path) -> Result<Vec<ItemSummary
             position: r.get(28)?,
             duration: r.get(29)?,
             playback_at: r.get(30)?,
+            my_rating: r.get(31)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -300,16 +305,29 @@ pub fn history(conn: &Connection, item_id: Option<i64>) -> Result<Vec<HistoryEnt
 }
 
 /// Añade un visionado. Sin `date` (`AAAA-MM-DD`) es ahora mismo, y entonces la película deja de
-/// estar "a medias": se borra la posición guardada.
-pub fn add_watch(conn: &Connection, item_id: i64, date: Option<&str>, source: &str) -> Result<()> {
+/// estar "a medias": se borra la posición guardada. Devuelve el id del visionado.
+pub fn add_watch(conn: &Connection, item_id: i64, date: Option<&str>, source: &str) -> Result<i64> {
     conn.execute(
         "INSERT INTO history (item_id, watched_at, source) VALUES (?1, COALESCE(?2, datetime('now')), ?3)",
         params![item_id, date, source],
     )?;
+    let id = conn.last_insert_rowid();
     if date.is_none() {
         conn.execute("DELETE FROM playback WHERE item_id = ?1", [item_id])?;
     }
-    fix_rewatch(conn, item_id)
+    fix_rewatch(conn, item_id)?;
+    Ok(id)
+}
+
+/// Día del visionado en hora local: las fechas puestas a mano ya son solo el día; las del
+/// reproductor van con hora en UTC. Para usar en SQL con la columna `watched_at`.
+pub const LOCAL_DAY: &str = "CASE WHEN length(watched_at) > 10 THEN date(watched_at, 'localtime') ELSE watched_at END";
+
+/// Nota de un visionado (0,5–5 en medias estrellas, como Letterboxd; `None` la quita).
+pub fn set_rating(conn: &Connection, history_id: i64, rating: Option<f64>) -> Result<()> {
+    let rating = rating.map(|r| ((r * 2.0).round() / 2.0).clamp(0.5, 5.0));
+    conn.execute("UPDATE history SET rating = ?2 WHERE id = ?1", params![history_id, rating])?;
+    Ok(())
 }
 
 /// Todos los visionados de una película son "revisionado" menos el primero (por fecha).

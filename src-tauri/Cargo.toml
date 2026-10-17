@@ -32,6 +32,8 @@ anyhow = "1"
 trash = "5"
 libloading = "0.8"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+csv = "1.4.0"
+zip = { version = "9.0.4", default-features = false, features = ["deflate"] }
 
 # https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

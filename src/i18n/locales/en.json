@@ -40,7 +40,8 @@
     "tmdb": "TMDb rating",
     "runtime": "Runtime",
     "lastWatched": "Last watched",
-    "size": "File size"
+    "size": "File size",
+    "myRating": "My rating"
   },
   "filters": {
     "genres": "Genres",
@@ -187,6 +188,42 @@
     "unmarkMessage": "All {{count}} viewings in its history will be deleted.",
     "unmark": "Remove from Watched"
   },
+  "rating": {
+    "mine": "My rating",
+    "label": "Your rating",
+    "value": "{{value}} out of 5",
+    "none": "Not rated",
+    "rate": "Rate it",
+    "change": "Change the rating (click the same one to remove it)",
+    "rateIt": "How would you rate it?"
+  },
+  "letterboxd": {
+    "intro": "Letterboxd has no open connection: it goes through files. Your ratings (stars) travel in the export.",
+    "export": "Export to Letterboxd",
+    "onlyNew": "Only what is new since the last export",
+    "exportButton": "Export history…",
+    "exportTitle": "Save the history for Letterboxd",
+    "nothingNew": "There are no new viewings to export.",
+    "exported_one": "{{count}} viewing exported. Upload it at",
+    "exported_other": "{{count}} viewings exported. Upload them at",
+    "parts": "They are in {{count}} files: Letterboxd accepts at most 1 MB per file.",
+    "showFile": "Show the file",
+    "import": "Import from Letterboxd",
+    "importHint": "Download your export (a ZIP) in Letterboxd → Settings → Data → Export your data, and pick it here. Your watched films, diary and ratings are added without duplicating what you already have, so you can repeat it any time:",
+    "watchlist": "Also add your watchlist to Pending (only films you don't have or haven't seen)",
+    "importButton": "Import export…",
+    "importing": "Importing…",
+    "importTitle": "Choose your Letterboxd export",
+    "importFilter": "Letterboxd export",
+    "noKey": "Without a TMDb key, only films already in K-Movies are recognised.",
+    "imported": "{{films}} films read: {{viewings}} new viewings and {{ratings}} new ratings.",
+    "added_one": "{{count}} new film added.",
+    "added_other": "{{count}} new films added.",
+    "pending_one": "{{count}} to Pending.",
+    "pending_other": "{{count}} to Pending.",
+    "unmatched_one": "{{count}} not found",
+    "unmatched_other": "{{count}} not found"
+  },
   "settings": {
     "title": "Settings",
     "libraries": "Movie folders",
@@ -277,7 +314,8 @@
     "ratings": "Updating IMDb ratings…",
     "badKey": "Your TMDb key isn't valid.",
     "failed": "The scan failed",
-    "refreshing": "Updating information"
+    "refreshing": "Updating information",
+    "letterboxd": "Importing from Letterboxd"
   },
   "format": {
     "hoursMinutes": "{{h}} h {{m}} min",
@@ -326,7 +364,11 @@
     "not_identified": "This movie hasn't been identified yet.",
     "cancelled": "Cancelled",
     "already_playing": "This movie is already playing.",
-    "bad_date": "That date isn't valid."
+    "bad_date": "That date isn't valid.",
+    "letterboxd_empty": "There is nothing to import in that file.",
+    "letterboxd_not_export": "That ZIP doesn't look like a Letterboxd export.",
+    "busy": "Wait until the current task (scan or import) finishes.",
+    "no_video": "There is no picture yet."
   },
   "conflict": {
     "title": "That name already exists",

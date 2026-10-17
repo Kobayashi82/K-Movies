@@ -1161,6 +1161,47 @@ input[type="range"]:active::-webkit-slider-thumb {
 .rating small {
   color: var(--text-3);
 }
+.rating.mine {
+  cursor: default;
+}
+.rating.mine:hover {
+  background: var(--surface);
+}
+.rating.mine .rating-source {
+  color: var(--accent);
+}
+
+/* Tu nota en estrellas (medias incluidas): la fila rellena se recorta sobre la vacía. */
+.stars {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--accent);
+  line-height: 0;
+}
+.stars-base {
+  display: inline-flex;
+  color: var(--text-3);
+  opacity: 0.7;
+}
+.stars-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: inline-flex;
+  overflow: hidden;
+  pointer-events: none;
+}
+.stars-fill svg,
+.stars-base svg {
+  flex-shrink: 0;
+}
+.stars.editable {
+  cursor: pointer;
+  border-radius: 4px;
+}
+.stars.editable:hover .stars-base {
+  opacity: 1;
+}
 .detail-tagline {
   margin: 22px 0 0;
   font-style: italic;
@@ -1377,6 +1418,21 @@ input[type="range"]:active::-webkit-slider-thumb {
   font-size: 12px;
   word-break: break-all;
 }
+/* Ajustes → Letterboxd: las que no se encontraron al importar */
+.lb-unmatched {
+  margin-top: 8px;
+  color: var(--text-2);
+}
+.lb-unmatched summary {
+  cursor: pointer;
+}
+.lb-unmatched ul {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+}
 .library-list {
   list-style: none;
   margin: 0 0 12px;
@@ -1489,6 +1545,15 @@ input[type="range"]:active::-webkit-slider-thumb {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.toast-rate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.toast .stars svg {
+  color: inherit;
 }
 .toast-progress {
   position: absolute;

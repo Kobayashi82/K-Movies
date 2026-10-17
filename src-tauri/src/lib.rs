@@ -1,6 +1,7 @@
 mod db;
 mod images;
 mod imdb;
+mod letterboxd;
 mod library;
 mod mpv;
 mod parse;
@@ -205,6 +206,34 @@ fn delete_history(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<
     db::prune_orphans(&conn).map_err(err)?;
     let _ = app.emit("library-changed", ());
     Ok(())
+}
+
+/// Tu nota de un visionado (0,5–5, en medias estrellas); `None` la quita.
+#[tauri::command]
+fn set_history_rating(app: AppHandle, state: State<AppState>, id: i64, rating: Option<f64>) -> CmdResult<()> {
+    db::set_rating(&state.db(), id, rating).map_err(err)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+/// Escribe el CSV de importación de Letterboxd. Con `only_new`, solo lo que no se haya exportado ya.
+#[tauri::command]
+fn letterboxd_export(state: State<AppState>, path: String, only_new: bool) -> CmdResult<letterboxd::ExportResult> {
+    letterboxd::export(&state.db(), Path::new(&path), only_new).map_err(err)
+}
+
+/// Importa la exportación de Letterboxd (el ZIP o un CSV suelto). No va a la vez que un escaneo:
+/// los dos crean fichas.
+#[tauri::command]
+async fn letterboxd_import(app: AppHandle, path: String, watchlist: bool) -> CmdResult<letterboxd::ImportSummary> {
+    if app.state::<AppState>().scanning.swap(true, Ordering::SeqCst) {
+        return Err("busy".into());
+    }
+    let result = letterboxd::import(&app, Path::new(&path), watchlist).await;
+    app.state::<AppState>().scanning.store(false, Ordering::SeqCst);
+    // También si ha fallado a medias: que no se quede el aviso de progreso.
+    library::emit(&app, "done", 0, 0, None);
+    result.map_err(err)
 }
 
 /// Olvida por dónde ibas (la quita de "Seguir viendo").
@@ -498,6 +527,9 @@ pub fn run() {
             add_history,
             set_history_date,
             delete_history,
+            set_history_rating,
+            letterboxd_export,
+            letterboxd_import,
             clear_progress,
             now_playing,
             internal_player_available,
