@@ -6,6 +6,8 @@ use crate::playback::{Resolved, Tracker};
 use crate::{AppState, db};
 use anyhow::{Result, bail};
 use serde::Serialize;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
@@ -39,6 +41,8 @@ pub struct PlayerState {
 pub struct Slot {
     mpv: Mutex<Option<Arc<Mpv>>>,
     state: Mutex<PlayerState>,
+    /// Se han cambiado a mano las pistas o los retardos: al cerrar se guardan para ese archivo.
+    touched: AtomicBool,
     /// Tamaño y posición de la ventana antes de pasar a imagen en imagen.
     restore: Mutex<Option<(tauri::PhysicalSize<u32>, tauri::PhysicalPosition<i32>)>>,
 }
@@ -66,15 +70,56 @@ fn emit_state(app: &AppHandle) {
     let _ = app.emit_to(LABEL, "player-state", state(app));
 }
 
-/// Estilo de los subtítulos (ajustes `subScale`, `subPos`, `subBackground`), para mpv.
-fn sub_style(scale: f64, pos: f64, background: bool) -> Vec<(&'static str, String)> {
-    vec![
+/// Códigos con los que suelen venir etiquetadas las pistas de cada idioma.
+fn lang_tags(code: &str) -> Option<&'static str> {
+    Some(match code {
+        "es" => "es,spa,esp,cas",
+        "en" => "en,eng",
+        "fr" => "fr,fre,fra",
+        "de" => "de,ger,deu",
+        "it" => "it,ita",
+        "pt" => "pt,por",
+        "ca" => "ca,cat",
+        "ja" => "ja,jpn",
+        "ko" => "ko,kor",
+        "zh" => "zh,chi,zho",
+        "ru" => "ru,rus",
+        _ => return None,
+    })
+}
+
+/// Idiomas y estilo de los subtítulos según los ajustes. Se aplican sin abortar si alguno falla,
+/// por si la libmpv instalada es de otra versión.
+fn preferences(settings: &HashMap<String, String>, scale: f64, pos: f64, background: bool) -> Vec<(&'static str, String)> {
+    let get = |k: &str| settings.get(k).map(String::as_str);
+    let mut out: Vec<(&str, String)> = vec![
         ("sub-scale", format!("{scale:.2}")),
         ("sub-pos", format!("{pos:.0}")),
         // Caja semitransparente detrás del texto (lo que no hace Jellyfin) o el contorno clásico.
         ("sub-border-style", if background { "background-box" } else { "outline-and-shadow" }.into()),
         ("sub-back-color", "#A6000000".into()),
-    ]
+        ("sub-color", get("subColor").filter(|c| c.starts_with('#')).unwrap_or("#FFFFFF").into()),
+        // Los ASS traen su propio estilo (karaoke, carteles); solo se impone el nuestro si se pide.
+        ("sub-ass-override", if get("subAssOverride") == Some("true") { "force" } else { "scale" }.into()),
+        // Subtítulos externos con nombre parecido al del vídeo (`Película.es.srt`).
+        ("sub-auto", "fuzzy".into()),
+    ];
+    if let Some(tags) = get("audioLang").and_then(lang_tags) {
+        out.push(("alang", tags.into()));
+    }
+    match get("subLang") {
+        Some("none") => out.push(("sid", "no".into())),
+        Some(code) => {
+            if let Some(tags) = lang_tags(code) {
+                out.push(("slang", tags.into()));
+                // "Solo si hace falta": si el audio ya está en ese idioma, solo los forzados (carteles).
+                let only_needed = get("subsOnlyIfNeeded") != Some("false");
+                out.push(("subs-with-matching-audio", if only_needed { "forced" } else { "yes" }.into()));
+            }
+        }
+        None => {}
+    }
+    out
 }
 
 pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
@@ -85,6 +130,7 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
     let num = |k: &str, default: f64| settings.get(k).and_then(|v| v.parse().ok()).unwrap_or(default);
     let (scale, pos, volume) = (num("subScale", 1.0), num("subPos", 100.0), num("playerVolume", 100.0));
     let background = settings.get("subBackground").is_none_or(|v| v == "true");
+    let file_prefs = db::file_prefs(&app.state::<AppState>().db(), r.file_id)?;
 
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html#player".into()))
         .title(&r.title)
@@ -109,11 +155,8 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
         ("input-cursor", "no".into()),
         ("osc", "no".into()),
         ("osd-level", "0".into()),
-        // Subtítulos externos con nombre parecido al del vídeo (`Película.es.srt`).
-        ("sub-auto", "fuzzy".into()),
         ("volume", format!("{volume:.0}")),
     ];
-    options.extend(sub_style(scale, pos, background));
     if let Some(s) = r.start.filter(|s| *s > 1.0) {
         options.push(("start", format!("{s:.0}")));
     }
@@ -125,6 +168,11 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
             return Err(e);
         }
     };
+    for (k, v) in preferences(&settings, scale, pos, background) {
+        if let Err(e) = mpv.set(k, &v) {
+            eprintln!("[player] {e:#}");
+        }
+    }
     for (name, format) in [
         ("time-pos", Format::Double),
         ("duration", Format::Double),
@@ -153,6 +201,7 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
         ..Default::default()
     };
     with_state(app, |s| *s = fresh);
+    slot(app).touched.store(false, Ordering::SeqCst);
     *slot(app).mpv.lock().unwrap_or_else(|e| e.into_inner()) = Some(mpv.clone());
 
     // Cerrar la ventana (Alt+F4, botón) para mpv primero; la ventana se destruye al acabar.
@@ -165,16 +214,55 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
     });
 
     let tracker = Tracker::begin(app, &r, "K-Movies".into(), true);
+    let session = Session { file_id: r.file_id, prefs: file_prefs, hwnd };
     let app = app.clone();
-    std::thread::spawn(move || event_loop(app, mpv, tracker, hwnd));
+    std::thread::spawn(move || event_loop(app, mpv, tracker, session));
     Ok(())
 }
 
+struct Session {
+    file_id: i64,
+    /// Pistas y retardos que se eligieron la última vez para este archivo.
+    prefs: Option<db::FilePrefs>,
+    hwnd: isize,
+}
+
+/// Recupera las pistas y retardos de la última vez, si esas pistas siguen existiendo.
+fn restore_prefs(mpv: &Mpv, p: &db::FilePrefs) {
+    let tracks: Vec<serde_json::Value> = mpv.get("track-list").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+    let has = |kind: &str, id: &str| tracks.iter().any(|t| t["type"] == kind && t["id"].to_string() == id);
+    if let Some(aid) = p.aid.as_deref().filter(|id| has("audio", id)) {
+        let _ = mpv.set("aid", aid);
+    }
+    if let Some(sid) = p.sid.as_deref().filter(|id| *id == "no" || has("sub", id)) {
+        let _ = mpv.set("sid", sid);
+    }
+    let _ = mpv.set("audio-delay", &p.audio_delay.to_string());
+    let _ = mpv.set("sub-delay", &p.sub_delay.to_string());
+}
+
+/// Pistas elegidas y retardos ahora mismo, para guardarlos con el archivo.
+fn current_prefs(s: &PlayerState) -> db::FilePrefs {
+    let selected = |kind: &str| {
+        s.tracks.as_array().and_then(|ts| {
+            ts.iter().find(|t| t["type"] == kind && t["selected"] == true).map(|t| t["id"].to_string())
+        })
+    };
+    db::FilePrefs {
+        aid: selected("audio"),
+        sid: Some(selected("sub").unwrap_or_else(|| "no".into())),
+        audio_delay: s.audio_delay,
+        sub_delay: s.sub_delay,
+    }
+}
+
 /// Lee los eventos de mpv hasta que termina la película o se cierra el reproductor.
-fn event_loop(app: AppHandle, mpv: Arc<Mpv>, mut tracker: Tracker, hwnd: isize) {
+fn event_loop(app: AppHandle, mpv: Arc<Mpv>, mut tracker: Tracker, session: Session) {
+    let hwnd = session.hwnd;
     let mut dirty = true;
     let mut emitted = Instant::now();
     let mut tracked = Instant::now();
+    let mut last_tracks = serde_json::Value::Null;
     loop {
         match mpv.wait_event(0.25) {
             Some(Event::Shutdown) => break,
@@ -185,14 +273,27 @@ fn event_loop(app: AppHandle, mpv: Arc<Mpv>, mut tracker: Tracker, hwnd: isize) 
                 }
                 break;
             }
-            Some(Event::FileLoaded | Event::VideoReconfig) => {
+            Some(Event::FileLoaded) => {
+                if let Some(p) = &session.prefs {
+                    restore_prefs(&mpv, p);
+                }
+                video_to_back(hwnd);
+                dirty = true;
+            }
+            Some(Event::VideoReconfig) => {
                 video_to_back(hwnd);
                 dirty = true;
             }
             Some(Event::Property { name, value }) => {
                 if name == "track-list" {
-                    let tracks = mpv.get("track-list").and_then(|j| serde_json::from_str(&j).ok());
-                    with_state(&app, |s| s.tracks = tracks.unwrap_or_default());
+                    let tracks: serde_json::Value =
+                        mpv.get("track-list").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+                    // Al cerrar, mpv descarga el archivo y la lista llega vacía: para recordar las
+                    // pistas elegidas vale la última que tenía algo.
+                    if tracks.as_array().is_some_and(|t| !t.is_empty()) {
+                        last_tracks = tracks.clone();
+                    }
+                    with_state(&app, |s| s.tracks = tracks);
                 } else {
                     remember(&app, &name, &value);
                     with_state(&app, |s| apply(s, &name, value));
@@ -220,6 +321,12 @@ fn event_loop(app: AppHandle, mpv: Arc<Mpv>, mut tracker: Tracker, hwnd: isize) 
         tracker.status(pos, len, s.paused);
     }
     tracker.finish();
+    if slot(&app).touched.swap(false, Ordering::SeqCst) {
+        let snapshot = PlayerState { tracks: last_tracks, ..s };
+        if let Err(e) = db::save_file_prefs(&app.state::<AppState>().db(), session.file_id, &current_prefs(&snapshot)) {
+            eprintln!("[player] {e:#}");
+        }
+    }
     // Primero mpv (destruye su ventana de vídeo) y después la nuestra.
     *slot(&app).mpv.lock().unwrap_or_else(|e| e.into_inner()) = None;
     *slot(&app).restore.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -284,8 +391,14 @@ fn video_to_back(parent: isize) {
 // ---------------------------------------------------------------------------
 // Órdenes desde la interfaz
 
+/// Lo que se recuerda por archivo si se cambia a mano.
+const PER_FILE: &[&str] = &["aid", "sid", "audio-delay", "sub-delay"];
+
 pub fn command(app: &AppHandle, args: &[String]) -> Result<()> {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    if args.first() == Some(&"add") && args.get(1).is_some_and(|p| PER_FILE.contains(p)) {
+        slot(app).touched.store(true, Ordering::SeqCst);
+    }
     mpv(app)?.command(&args)
 }
 
@@ -296,6 +409,9 @@ const SETTABLE: &[&str] =
 pub fn set(app: &AppHandle, name: &str, value: &str) -> Result<()> {
     if !SETTABLE.contains(&name) {
         bail!("property not allowed: {name}");
+    }
+    if PER_FILE.contains(&name) {
+        slot(app).touched.store(true, Ordering::SeqCst);
     }
     mpv(app)?.set(name, value)
 }
@@ -371,4 +487,62 @@ pub fn set_pip(app: &AppHandle, on: bool) -> Result<()> {
     });
     emit_state(app);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opts(pairs: &[(&str, &str)]) -> HashMap<&'static str, String> {
+        let settings: HashMap<String, String> = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        preferences(&settings, 1.0, 100.0, true).into_iter().collect()
+    }
+
+    #[test]
+    fn spanish_audio_else_original_with_spanish_subs() {
+        let o = opts(&[("audioLang", "es"), ("subLang", "es")]);
+        assert_eq!(o["alang"], "es,spa,esp,cas");
+        assert_eq!(o["slang"], "es,spa,esp,cas");
+        // Si el audio ya es castellano, solo los subtítulos forzados.
+        assert_eq!(o["subs-with-matching-audio"], "forced");
+        assert_eq!(o["sub-border-style"], "background-box");
+        assert_eq!(o["sub-ass-override"], "scale");
+        assert!(!o.contains_key("sid"));
+    }
+
+    #[test]
+    fn original_audio_and_no_subtitles() {
+        let o = opts(&[("audioLang", ""), ("subLang", "none"), ("subAssOverride", "true"), ("subColor", "#FFD83D")]);
+        assert!(!o.contains_key("alang"));
+        assert!(!o.contains_key("slang"));
+        assert_eq!(o["sid"], "no");
+        assert_eq!(o["sub-ass-override"], "force");
+        assert_eq!(o["sub-color"], "#FFD83D");
+    }
+
+    #[test]
+    fn subtitles_always_when_asked() {
+        let o = opts(&[("subLang", "en"), ("subsOnlyIfNeeded", "false")]);
+        assert_eq!(o["slang"], "en,eng");
+        assert_eq!(o["subs-with-matching-audio"], "yes");
+    }
+
+    #[test]
+    fn saved_prefs_use_the_selected_tracks() {
+        let s = PlayerState {
+            tracks: serde_json::json!([
+                { "id": 1, "type": "video", "selected": true },
+                { "id": 1, "type": "audio", "selected": false },
+                { "id": 2, "type": "audio", "selected": true },
+                { "id": 1, "type": "sub", "selected": false }
+            ]),
+            audio_delay: 0.1,
+            sub_delay: -0.2,
+            ..Default::default()
+        };
+        let p = current_prefs(&s);
+        assert_eq!(p.aid.as_deref(), Some("2"));
+        assert_eq!(p.sid.as_deref(), Some("no"));
+        assert_eq!((p.audio_delay, p.sub_delay), (0.1, -0.2));
+    }
 }

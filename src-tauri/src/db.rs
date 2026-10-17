@@ -6,7 +6,8 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
 
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/001_init.sql")];
+const MIGRATIONS: &[&str] =
+    &[include_str!("../migrations/001_init.sql"), include_str!("../migrations/002_file_prefs.sql")];
 
 pub fn open(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path)?;
@@ -320,6 +321,33 @@ pub fn fix_rewatch(conn: &Connection, item_id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Pistas y retardos elegidos para un archivo en el reproductor integrado.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FilePrefs {
+    pub aid: Option<String>,
+    pub sid: Option<String>,
+    pub audio_delay: f64,
+    pub sub_delay: f64,
+}
+
+pub fn file_prefs(conn: &Connection, file_id: i64) -> Result<Option<FilePrefs>> {
+    Ok(conn
+        .query_row("SELECT aid, sid, audio_delay, sub_delay FROM file_prefs WHERE file_id = ?1", [file_id], |r| {
+            Ok(FilePrefs { aid: r.get(0)?, sid: r.get(1)?, audio_delay: r.get(2)?, sub_delay: r.get(3)? })
+        })
+        .optional()?)
+}
+
+pub fn save_file_prefs(conn: &Connection, file_id: i64, p: &FilePrefs) -> Result<()> {
+    conn.execute(
+        "INSERT INTO file_prefs (file_id, aid, sid, audio_delay, sub_delay) VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(file_id) DO UPDATE SET aid = excluded.aid, sid = excluded.sid,
+             audio_delay = excluded.audio_delay, sub_delay = excluded.sub_delay",
+        params![file_id, p.aid, p.sid, p.audio_delay, p.sub_delay],
+    )?;
+    Ok(())
+}
+
 pub fn save_position(conn: &Connection, item_id: i64, file_id: i64, position: f64, duration: f64) -> Result<()> {
     conn.execute(
         "INSERT INTO playback (item_id, file_id, position, duration, updated_at)
@@ -360,6 +388,21 @@ mod tests {
         let left: i64 = conn.query_row("SELECT COUNT(*) FROM playback", [], |r| r.get(0)).unwrap();
         assert_eq!(left, 0);
         assert_eq!(history(&conn, Some(1)).unwrap()[0].source, "player");
+    }
+
+    #[test]
+    fn file_prefs_round_trip_and_go_with_the_file() {
+        let conn = conn_with_item();
+        conn.execute_batch("PRAGMA foreign_keys = ON").unwrap();
+        assert_eq!(file_prefs(&conn, 7).unwrap(), None);
+        let mut p = FilePrefs { aid: Some("2".into()), sid: Some("no".into()), audio_delay: 0.15, sub_delay: -0.3 };
+        save_file_prefs(&conn, 7, &p).unwrap();
+        assert_eq!(file_prefs(&conn, 7).unwrap(), Some(p.clone()));
+        p.sid = Some("3".into());
+        save_file_prefs(&conn, 7, &p).unwrap();
+        assert_eq!(file_prefs(&conn, 7).unwrap().unwrap().sid.as_deref(), Some("3"));
+        conn.execute("DELETE FROM files WHERE id = 7", []).unwrap();
+        assert_eq!(file_prefs(&conn, 7).unwrap(), None);
     }
 
     #[test]

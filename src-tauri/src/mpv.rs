@@ -268,3 +268,33 @@ impl Drop for Mpv {
         unsafe { (self.api.terminate_destroy)(self.handle) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Las opciones que usa K-Movies existen en la libmpv instalada (se salta si no está la DLL).
+    #[test]
+    fn options_exist() {
+        if !available() {
+            eprintln!("libmpv no está: prueba saltada");
+            return;
+        }
+        let mpv = Mpv::new(&[("vo", "null"), ("ao", "null")]).unwrap();
+        for (k, v) in [
+            ("sub-border-style", "background-box"),
+            ("sub-back-color", "#A6000000"),
+            ("sub-color", "#FFD83D"),
+            ("sub-ass-override", "force"),
+            ("sub-margin-y", "22"),
+            ("alang", "es,spa,esp"),
+            ("slang", "es,spa,esp"),
+            ("subs-with-matching-audio", "forced"),
+            ("subs-fallback", "default"),
+            ("sub-auto", "fuzzy"),
+            ("hwdec", "auto-safe"),
+        ] {
+            mpv.set(k, v).unwrap_or_else(|e| panic!("{k}={v}: {e}"));
+        }
+    }
+}

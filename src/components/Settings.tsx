@@ -8,6 +8,13 @@ import { api, parseDbDate, type Player } from "../api";
 import { available, setLanguage } from "../i18n";
 import { useStore } from "../store";
 import { formatDate } from "../util";
+import { PLAYER_LANGS, SubtitleSettings } from "./SubtitleSettings";
+
+/** Idiomas preferidos del reproductor la primera vez: los de la interfaz, con subtítulos solo si hacen falta. */
+export function defaultPlayerLanguages(uiLanguage: string): Record<string, string> {
+  const lang = PLAYER_LANGS.includes(uiLanguage) ? uiLanguage : "";
+  return { audioLang: lang, subLang: lang || "none", subsOnlyIfNeeded: "true" };
+}
 
 const META_LANGUAGES = ["es-ES", "es-MX", "en-US", "en-GB", "fr-FR", "de-DE", "it-IT", "pt-PT", "pt-BR", "ja-JP", "ko-KR"];
 
@@ -41,6 +48,8 @@ export function Settings() {
   useEffect(() => {
     void api.detectPlayers().then(setPlayers);
     void api.internalPlayerAvailable().then(setInternal);
+    // El reproductor (otra ventana) también guarda ajustes: volumen y estilo de los subtítulos.
+    void api.getSettings().then((s) => useStore.setState({ settings: s }));
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && openSettings(false);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -220,6 +229,12 @@ export function Settings() {
             </label>
             <p className="hint">{t("settings.trackingHint")}</p>
           </Section>
+
+          {internal && (playerPath === "" || playerPath === "internal") && (
+            <Section title={t("settings.internalPlayer")}>
+              <SubtitleSettings />
+            </Section>
+          )}
 
           <Section title={t("settings.appearance")}>
             <label className="field">
