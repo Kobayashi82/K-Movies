@@ -1,0 +1,67 @@
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useEffect, useRef } from "react";
+import type { Item } from "../api";
+import { useElementWidth } from "../hooks";
+import { useStore } from "../store";
+import { PosterCard } from "./PosterCard";
+
+const PADDING = 28;
+const INFO_HEIGHT = 52;
+
+/**
+ * Rejilla virtualizada por filas: solo existen en el DOM las filas visibles (más unas pocas
+ * de margen), así que va igual de fluida con 50 películas que con 10 000.
+ */
+export function Grid({ items }: { items: Item[] }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const width = useElementWidth(scrollRef);
+  const gridSize = useStore((s) => s.gridSize);
+  const view = useStore((s) => s.view);
+
+  const gap = Math.round(Math.min(28, Math.max(14, gridSize * 0.11)));
+  const inner = Math.max(0, width - PADDING * 2);
+  const cols = Math.max(1, Math.floor((inner + gap) / (gridSize + gap)));
+  const cardWidth = cols > 0 ? (inner - gap * (cols - 1)) / cols : gridSize;
+  const rowHeight = Math.round(cardWidth * 1.5 + INFO_HEIGHT + gap);
+  const rows = Math.ceil(items.length / cols);
+
+  const virtualizer = useVirtualizer({
+    count: rows,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 3,
+    paddingStart: 8,
+    paddingEnd: 40,
+  });
+
+  useEffect(() => {
+    virtualizer.measure();
+  }, [rowHeight, cols, virtualizer]);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [view]);
+
+  return (
+    <div ref={scrollRef} className="grid-scroll" onMouseLeave={() => useStore.getState().hover(null)}>
+      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+        {virtualizer.getVirtualItems().map((row) => (
+          <div
+            key={row.key}
+            className="grid-row"
+            style={{
+              transform: `translateY(${row.start}px)`,
+              height: rowHeight - gap,
+              gap,
+              padding: `0 ${PADDING}px`,
+              gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+            }}
+          >
+            {items.slice(row.index * cols, row.index * cols + cols).map((item) => (
+              <PosterCard key={item.id} item={item} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
