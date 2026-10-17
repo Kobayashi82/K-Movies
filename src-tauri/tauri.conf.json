@@ -11,6 +11,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "appDirectoriesOverride": "$LOCALDATA/kmovies",
     "windows": [
       {
         "label": "main",

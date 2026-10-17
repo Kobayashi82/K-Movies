@@ -51,7 +51,7 @@ Catálogo de películas para Windows. Escanea tus carpetas, identifica cada pel�
 1. Consigue `K-Movies.exe` (ver [Compilar](#compilar)). Es un solo archivo, sin instalador: cópialo donde quieras y ábrelo. Necesita Windows 10 u 11 con WebView2 (en Windows 11 ya viene).
 2. En **Ajustes**, añade tu carpeta de películas y tu clave gratuita de TMDb ([themoviedb.org/settings/api](https://www.themoviedb.org/settings/api)).
 
-Tus datos (biblioteca, ajustes, caché de imágenes y el reproductor) se guardan en `%LOCALAPPDATA%\com.kobayashi82.kmovies`.
+Tus datos (biblioteca, ajustes, caché de imágenes y el reproductor) se guardan en `%LOCALAPPDATA%\kmovies`.
 
 ## Compilar
 
@@ -60,18 +60,18 @@ Requisitos: [Node.js](https://nodejs.org) 20+, [Rust](https://rustup.rs) y las *
 ```sh
 npm install
 npm run libmpv         # descarga libmpv-2.dll para el reproductor integrado (una vez)
-npm run tauri dev      # desarrollo, con recarga en caliente (o dev.bat)
+npm run tauri dev      # desarrollo, con recarga en caliente
 npm run tauri build    # src-tauri/target/release/K-Movies.exe, con todo dentro
 cd src-tauri && cargo test
 ```
 
 `libmpv-2.dll` va comprimida dentro del ejecutable (ver [src-tauri/lib/README.md](src-tauri/lib/README.md)).
 
-Hecho con [Tauri 2](https://tauri.app), React, TypeScript y Rust; SQLite para los datos y [mpv](https://mpv.io) para el reproductor. Sucesor de K-Movies 4.0 (VB.NET). Las decisiones técnicas y su porqué están en [DECISIONES.md](DECISIONES.md).
+Hecho con [Tauri 2](https://tauri.app), React, TypeScript y Rust; SQLite para los datos y [mpv](https://mpv.io) para el reproductor. Sucesor de K-Movies 4.0 (VB.NET).
 
 ## Traducciones
 
-Los textos están en [src/i18n/locales/](src/i18n/locales/). Para añadir un idioma, copia `en.json` con el código del idioma (por ejemplo `fr.json`), cambia `_name` y traduce los valores. También se puede dejar el archivo en `%LOCALAPPDATA%\com.kobayashi82.kmovies\locales\` sin recompilar.
+Los textos están en [src/i18n/locales/](src/i18n/locales/). Para añadir un idioma, copia `en.json` con el código del idioma (por ejemplo `fr.json`), cambia `_name` y traduce los valores. También se puede dejar el archivo en `%LOCALAPPDATA%\kmovies\locales\` sin recompilar.
 
 ## Créditos
 

@@ -480,8 +480,29 @@ fn user_locales(state: State<AppState>) -> HashMap<String, serde_json::Value> {
     out
 }
 
+/// Hasta la versión de octubre de 2026 los datos estaban en `%LOCALAPPDATA%\com.kobayashi82.kmovies`
+/// (la carpeta del identificador de Tauri); ahora en `%LOCALAPPDATA%\kmovies` (`appDirectoriesOverride`
+/// en `tauri.conf.json`). Se mueve una vez, antes de que WebView2 o la base de datos abran nada ahí.
+/// Si no se puede mover (p. ej. otra copia de K-Movies abierta), devuelve la antigua para seguir
+/// usándola en esta ejecución.
+fn move_old_data_dir() -> Option<PathBuf> {
+    let local = PathBuf::from(std::env::var_os("LOCALAPPDATA")?);
+    let (old, new) = (local.join("com.kobayashi82.kmovies"), local.join("kmovies"));
+    if !old.is_dir() || new.exists() {
+        return None;
+    }
+    match std::fs::rename(&old, &new) {
+        Ok(()) => None,
+        Err(e) => {
+            eprintln!("[datos] no se pudo mover {} a {}: {e}", old.display(), new.display());
+            Some(old)
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let old_data_dir = move_old_data_dir();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -489,12 +510,16 @@ pub fn run() {
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn(async move { responder.respond(images::handle(app, request).await) });
         })
-        .setup(|app| {
+        .setup(move |app| {
             // KMOVIES_DATA_DIR permite usar otra carpeta de datos (pruebas sin tocar la biblioteca real).
             let data_dir = match std::env::var_os("KMOVIES_DATA_DIR") {
                 Some(dir) => PathBuf::from(dir),
-                None => app.path().app_local_data_dir()?,
+                None => match old_data_dir {
+                    Some(old) => old,
+                    None => app.path().app_local_data_dir()?,
+                },
             };
+            let lib_dir = data_dir.join("lib");
             let cache_dir = data_dir.join("cache");
             for dir in ["posters", "backdrops"] {
                 std::fs::create_dir_all(cache_dir.join(dir))?;
@@ -519,7 +544,7 @@ pub fn run() {
             // Archivos nuevos o borrados en las carpetas de la biblioteca: se reescanea solo.
             watch::start(app.handle());
             // libmpv va dentro del ejecutable: se descomprime ya, en segundo plano, si hace falta.
-            mpv::prepare();
+            mpv::prepare(lib_dir);
             // Cerrar K-Movies cierra también la película (y guarda por dónde ibas).
             if let Some(main) = app.get_webview_window("main") {
                 let handle = app.handle().clone();

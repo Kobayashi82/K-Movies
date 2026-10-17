@@ -77,13 +77,16 @@ fn candidates() -> Vec<PathBuf> {
     out
 }
 
-/// Descomprime la libmpv del ejecutable en `%LOCALAPPDATA%\com.kobayashi82.kmovies\lib` (solo la
-/// primera vez de cada versión) y devuelve su ruta. Borra las de versiones anteriores.
+/// Carpeta donde se descomprime (`<datos>\lib`); la fija `prepare` al arrancar.
+static LIB_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Descomprime la libmpv del ejecutable en `<datos>\lib` (solo la primera vez de cada versión) y
+/// devuelve su ruta. Borra las de versiones anteriores.
 fn extract_embedded() -> Option<PathBuf> {
     if EMBEDDED.is_empty() {
         return None;
     }
-    let dir = PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("com.kobayashi82.kmovies").join("lib");
+    let dir = LIB_DIR.get()?.clone();
     let path = dir.join(EMBEDDED_NAME);
     if path.is_file() {
         return Some(path);
@@ -154,9 +157,10 @@ pub fn available() -> bool {
     api().is_some()
 }
 
-/// Deja libmpv lista en segundo plano al arrancar, para que el primer "Reproducir" no espere a
-/// descomprimirla.
-pub fn prepare() {
+/// Deja libmpv lista en segundo plano al arrancar (descomprimida en `lib_dir` si va dentro del
+/// ejecutable), para que el primer "Reproducir" no espere.
+pub fn prepare(lib_dir: PathBuf) {
+    let _ = LIB_DIR.set(lib_dir);
     std::thread::spawn(available);
 }
 
