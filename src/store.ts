@@ -27,7 +27,8 @@ export type Dialog =
       query: string;
       year?: number | null;
     }
-  | { kind: "import"; paths: string[] };
+  | { kind: "import"; paths: string[] }
+  | { kind: "person"; personId: number };
 
 export type ToastNotice = Notice & { id: number };
 

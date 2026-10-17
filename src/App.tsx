@@ -15,6 +15,7 @@ import { FilterPanel } from "./components/FilterPanel";
 import { Grid } from "./components/Grid";
 import { HistoryList } from "./components/History";
 import { ImportDialog } from "./components/ImportDialog";
+import { PersonDialog } from "./components/PersonDialog";
 import { SearchDialog } from "./components/SearchDialog";
 import { Settings } from "./components/Settings";
 import { TitleBar } from "./components/TitleBar";
@@ -134,6 +135,7 @@ export default function App() {
         {settingsOpen && <Settings key="settings" />}
         {dialog?.kind === "search" && <SearchDialog key="search" {...dialog} />}
         {dialog?.kind === "import" && <ImportDialog key="import" paths={dialog.paths} />}
+        {dialog?.kind === "person" && <PersonDialog key={`person${dialog.personId}`} personId={dialog.personId} />}
         {trailer && <Trailer key="trailer" videoKey={trailer} />}
         {choice && <ChoiceDialog key="choice" choice={choice} />}
       </AnimatePresence>

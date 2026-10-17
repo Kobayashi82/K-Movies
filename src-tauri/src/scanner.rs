@@ -8,10 +8,10 @@ use std::sync::LazyLock;
 use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
-const VIDEO_EXT: &[&str] = &[
+pub const VIDEO_EXT: &[&str] = &[
     "mp4", "mkv", "avi", "m4v", "mov", "wmv", "mpg", "mpeg", "ts", "m2ts", "webm", "flv", "ogm", "divx",
 ];
-const SUB_EXT: &[&str] = &["srt", "ass", "ssa", "sub", "vtt"];
+pub const SUB_EXT: &[&str] = &["srt", "ass", "ssa", "sub", "vtt"];
 /// Carpetas que nunca contienen la película principal (`cache` es la del K-Movies 4.0).
 const SKIP_DIRS: &[&str] = &[
     "cache", "extras", "featurettes", "trailers", "behind the scenes", "deleted scenes", "interviews",

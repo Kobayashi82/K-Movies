@@ -224,6 +224,13 @@
     "unmatched_one": "{{count}} not found",
     "unmatched_other": "{{count}} not found"
   },
+  "person": {
+    "count_one": "{{count}} film in your collection",
+    "count_other": "{{count}} films in your collection",
+    "filter": "Show only theirs",
+    "director": "Director",
+    "cast": "Cast"
+  },
   "settings": {
     "title": "Settings",
     "libraries": "Movie folders",

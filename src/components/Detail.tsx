@@ -61,7 +61,15 @@ export function Detail({ item }: { item: Item }) {
   };
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return close();
+      // P reproduce (o continúa), como en la rejilla.
+      const s = useStore.getState();
+      const typing = (e.target as HTMLElement).closest("input, textarea, select");
+      if (e.key.toLowerCase() === "p" && !typing && !e.ctrlKey && !e.altKey && !s.dialog && !s.choice && !s.trailer) {
+        if (item.fileCount > 0 && !live) play();
+      }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
@@ -233,7 +241,16 @@ export function Detail({ item }: { item: Item }) {
               {directors.length > 0 && (
                 <>
                   <dt>{t("detail.director", { count: directors.length })}</dt>
-                  <dd>{directors.map((d) => d.name).join(", ")}</dd>
+                  <dd>
+                    {directors.map((d, i) => (
+                      <span key={d.id}>
+                        {i > 0 && ", "}
+                        <button className="link-btn inline person-link" onClick={() => openDialog({ kind: "person", personId: d.id })}>
+                          {d.name}
+                        </button>
+                      </span>
+                    ))}
+                  </dd>
                 </>
               )}
               {released && (
@@ -272,13 +289,13 @@ export function Detail({ item }: { item: Item }) {
             <h3>{t("detail.cast")}</h3>
             <div className="cast-row">
               {cast.map((p) => (
-                <div key={p.id} className="cast-card">
+                <button key={p.id} className="cast-card" onClick={() => openDialog({ kind: "person", personId: p.id })}>
                   <div className="cast-photo">
                     {p.profileUrl ? <img src={cachedTmdbImage(p.profileUrl)!} alt="" loading="lazy" /> : <span>{p.name[0]}</span>}
                   </div>
                   <strong>{p.name}</strong>
                   {p.character && <small>{p.character}</small>}
-                </div>
+                </button>
               ))}
             </div>
           </section>

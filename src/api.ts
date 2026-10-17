@@ -72,6 +72,15 @@ export interface Person {
   profileUrl: string | null;
 }
 
+/** Una persona con sus películas en K-Movies (de disco, Pendientes y Vistas). */
+export interface PersonPage {
+  id: number;
+  tmdbId: number | null;
+  name: string;
+  profileUrl: string | null;
+  credits: { itemId: number; role: "director" | "cast"; character: string | null }[];
+}
+
 export interface ItemDetail {
   overview: string | null;
   tagline: string | null;
@@ -241,6 +250,7 @@ export const api = {
     crop: (ratio: number) => invoke<void>("player_crop", { ratio }),
     close: () => invoke<void>("player_close"),
   },
+  getPerson: (id: number) => invoke<PersonPage>("get_person", { id }),
   listHistory: (itemId?: number) => invoke<HistoryEntry[]>("list_history", { itemId }),
   addHistory: (id: number, date?: string) => invoke<void>("add_history", { id, date }),
   setHistoryDate: (id: number, date: string) => invoke<void>("set_history_date", { id, date }),

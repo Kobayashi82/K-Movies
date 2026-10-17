@@ -263,6 +263,39 @@ pub fn item_detail(conn: &Connection, id: i64) -> Result<ItemDetail> {
     Ok(ItemDetail { overview, tagline, original_language, tmdb_votes, trailer_key, files, people })
 }
 
+/// Una película de una persona, con su papel.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Credit {
+    pub item_id: i64,
+    /// `director` | `cast`
+    pub role: String,
+    pub character: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonPage {
+    pub id: i64,
+    pub tmdb_id: Option<i64>,
+    pub name: String,
+    pub profile_url: Option<String>,
+    /// Sus películas en K-Movies (las de disco, Pendientes y Vistas).
+    pub credits: Vec<Credit>,
+}
+
+pub fn person(conn: &Connection, id: i64) -> Result<PersonPage> {
+    let (tmdb_id, name, profile_url) =
+        conn.query_row("SELECT tmdb_id, name, profile_url FROM people WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+    let mut stmt = conn.prepare(
+        "SELECT item_id, role, character FROM item_people WHERE person_id = ?1 ORDER BY role = 'cast', item_id",
+    )?;
+    let credits = stmt
+        .query_map([id], |r| Ok(Credit { item_id: r.get(0)?, role: r.get(1)?, character: r.get(2)? }))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(PersonPage { id, tmdb_id, name, profile_url, credits })
+}
+
 pub fn largest_file(conn: &Connection, item_id: i64) -> Result<Option<(i64, String)>> {
     Ok(conn
         .query_row("SELECT id, path FROM files WHERE item_id = ?1 ORDER BY size DESC LIMIT 1", [item_id], |r| {
@@ -409,6 +442,55 @@ mod tests {
         conn.execute("INSERT INTO files (id, item_id, path, added_at) VALUES (7, 1, 'C:/Buddy.mp4', '2026-01-01')", [])
             .unwrap();
         conn
+    }
+
+    /// Rendimiento con una biblioteca grande: `cargo test --release big_library -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn big_library() {
+        const N: i64 = 5000;
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        let tx = conn.unchecked_transaction().unwrap();
+        for p in 0..20_000 {
+            tx.execute("INSERT INTO people (id, tmdb_id, name) VALUES (?1, ?1, ?2)", params![p, format!("Persona {p}")]).unwrap();
+        }
+        for i in 0..N {
+            tx.execute(
+                "INSERT INTO items (id, tmdb_id, title, original_title, year, genres, countries, languages, imdb_rating, matched)
+                 VALUES (?1, ?1, ?2, ?2, 2000, '[\"Drama\",\"Comedia\"]', '[\"US\"]', '[\"en\"]', 7.1, 1)",
+                params![i, format!("Película número {i}")],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO files (item_id, path, size, added_at) VALUES (?1, ?2, 1000000, '2024-01-01')",
+                params![i, format!("V:/Peliculas/{i}.mkv")],
+            )
+            .unwrap();
+            for (ord, p) in (0..16).map(|k| (k, (i * 7 + k * 131) % 20_000)).collect::<Vec<_>>() {
+                let role = if ord == 0 { "director" } else { "cast" };
+                tx.execute(
+                    "INSERT OR IGNORE INTO item_people (item_id, person_id, role, ord) VALUES (?1, ?2, ?3, ?4)",
+                    params![i, p, role, ord],
+                )
+                .unwrap();
+            }
+            if i % 3 == 0 {
+                tx.execute("INSERT INTO history (item_id, watched_at, rating) VALUES (?1, '2024-05-05', 4)", [i]).unwrap();
+            }
+        }
+        tx.commit().unwrap();
+        let start = std::time::Instant::now();
+        let items = list_items(&conn, Path::new("C:/cache")).unwrap();
+        let query = start.elapsed();
+        let start = std::time::Instant::now();
+        let json = serde_json::to_string(&items).unwrap();
+        println!(
+            "{} películas: consulta {query:?}, JSON {:?} ({} KB)",
+            items.len(),
+            start.elapsed(),
+            json.len() / 1024
+        );
     }
 
     fn rewatch_flags(conn: &Connection) -> Vec<(String, bool)> {

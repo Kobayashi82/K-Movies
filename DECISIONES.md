@@ -40,7 +40,7 @@ Registro de decisiones tomadas durante el desarrollo, como pide `ESPECIFICACION.
 - Géneros, países e idiomas van como JSON en la propia fila del item (conjuntos pequeños que solo se filtran). Las personas sí van en tablas propias (`people`, `item_people`) porque tendrán fotos y, en el futuro, páginas propias.
 - **Filtrado y orden en el frontend**, en memoria. Con miles de películas tarda milisegundos y evita una consulta por cada pulsación. SQLite es el almacenamiento, no el motor de búsqueda.
 - **Fecha de añadido**: en el primer escaneo de una carpeta se toma la fecha de modificación del archivo (como hacía el 4.0, así se conserva su orden); después, la fecha en que se detecta.
-- Los ajustes (incluida la clave de TMDb) están en la tabla `settings`, fuera del repositorio. Alternativa pendiente de valorar: el almacén de credenciales de Windows para la clave.
+- Los ajustes (incluida la clave de TMDb) están en la tabla `settings`, fuera del repositorio. Se valoró guardar la clave en el almacén de credenciales de Windows y se descartó (ver "Fase 5").
 - Si la carpeta de una biblioteca no está accesible (disco de red apagado), el escaneo la salta y no borra nada.
 
 ### Metadatos
@@ -48,7 +48,7 @@ Registro de decisiones tomadas durante el desarrollo, como pide `ESPECIFICACION.
 - Identificación, por orden: id de TMDb en un `.nfo` → id de IMDb (del `.txt` del 4.0, de un `.nfo` de Jellyfin/Kodi o del nombre del archivo) → búsqueda por título y año. La búsqueda puntúa similitud del título (Jaro-Winkler sobre texto normalizado), año exacto o ±1 y popularidad; por debajo de 0,8 de similitud no se acepta y la película queda "sin identificar" (con el título del archivo) para corregirla a mano.
 - Idioma de los datos configurable (por defecto, el de la interfaz); lo que falte se completa en inglés.
 - **Notas de IMDb: dataset oficial `title.ratings.tsv.gz`** (verificado: 8,7 MB, se actualiza a diario). Se descarga como mucho cada 3 días y se recorre una vez por escaneo. Descartado OMDb: límite de 1000 peticiones/día, hace falta clave, y el 4.0 llevaba claves incrustadas en el código.
-- Imágenes: póster `w500` y fondo `w1280` descargados al identificar. Las fotos del reparto se cargan de TMDb al abrir la ficha (pendiente: cachearlas).
+- Imágenes: póster `w500` y fondo `w1280` descargados al identificar. Las fotos del reparto se cargan de TMDb al abrir la ficha (después se guardan en caché: ver fase 2).
 - Concurrencia: 6 peticiones simultáneas a TMDb, con reintentos ante 429 (respetando `Retry-After`), errores 5xx y cortes de red.
 
 ### Reproductor
@@ -105,7 +105,7 @@ Registro de decisiones tomadas durante el desarrollo, como pide `ESPECIFICACION.
 - **Posición**: se guarda cada 15 s y al pausar (por si algo se cierra mal), y al cerrar VLC. Por debajo de 1 minuto no se guarda: abrir la película y cerrarla no cuenta (y no pisa una posición anterior).
 - **Vista**: al pasar el umbral (90 % por defecto, configurable en Ajustes entre 75 y 98 %) se marca **en ese momento**, sin esperar a cerrar (los créditos no hace falta verlos). Se añade al historial con origen "reproductor" y se borra la posición. Si ya estaba vista, cuenta como revisionado.
 - La posición se guarda por película (no por archivo), con el archivo con el que se empezó: "Continuar" vuelve a ese archivo si sigue ahí.
-- **Otros reproductores**: solo se sabe cuándo se cierran. Si estuvieron abiertos 20 minutos o más, se pregunta "¿La has terminado?". mpv (IPC) y MPC (interfaz web) quedan pendientes para tener seguimiento completo.
+- **Otros reproductores**: solo se sabe cuándo se cierran. Si estuvieron abiertos 20 minutos o más, se pregunta "¿La has terminado?". Seguir mpv (IPC) y MPC (interfaz web) como reproductores externos se descartó con el usuario: con el reproductor integrado no hace falta.
 
 ### Historial
 - Cada visionado es una entrada con fecha; "revisionado" se recalcula siempre (todos menos el primero por fecha), así que añadir una fecha antigua o borrar una entrada deja las marcas bien.
@@ -124,13 +124,13 @@ Registro de decisiones tomadas durante el desarrollo, como pide `ESPECIFICACION.
 Confirmado con el usuario: ver las películas dentro de la app, con todos los formatos, cambio de pistas de audio y subtítulos, estilo y posición de los subtítulos, retardo del audio y de los subtítulos, e imagen en imagen. VLC (u otro) queda como opción en Ajustes.
 
 - **libmpv** (`libmpv-2.dll`, compilaciones de shinchiro) y no el `<video>` de WebView2. El del navegador no lee bien MKV, no tiene AC3, DTS ni TrueHD, no cambia de pista de audio de forma fiable, solo acepta WebVTT (nada de PGS o VobSub) y no permite retrasar el audio. Convertir al vuelo queda fuera del alcance. mpv lo trae todo (FFmpeg) y cada ajuste se cambia en marcha. Descartado libVLC: el estilo de los subtítulos se cambia peor en marcha.
-- **Carga dinámica** (`libloading`), sin enlazar al compilar. Si la DLL no está, la app funciona igual con el reproductor externo. Se busca junto al ejecutable y, en desarrollo, en `src-tauri/lib/` (fuera de git por su tamaño: 121 MB, unos 31 MB comprimida; ver `src-tauri/lib/README.md`). Falta incluirla en el instalador.
+- **Carga dinámica** (`libloading`), sin enlazar al compilar. Si la DLL no está, la app funciona igual con el reproductor externo. Se busca junto al ejecutable y, en desarrollo, en `src-tauri/lib/` (fuera de git por su tamaño: 121 MB, unos 31 MB comprimida; ver `src-tauri/lib/README.md`). Va en el instalador (ver más abajo).
 - **Cómo se compone**: una ventana de Tauri sin bordes y transparente. mpv dibuja en ella como ventana hija (opción `wid`) y se manda al fondo del orden Z (`SetWindowPos(HWND_BOTTOM)`). WebView2, con fondo transparente, queda encima con los controles. **Verificado que funciona** (vídeo HEVC, controles HTML encima, subtítulos de mpv visibles). Lo único que no se puede es desenfocar (`backdrop-filter`) lo que hay detrás de un panel, porque el vídeo no pasa por el WebView: los paneles son casi opacos.
 - Alternativas que no han hecho falta: ventana de controles flotante aparte y los controles de mpv (`uosc`).
 - Los comandos que crean o cambian la ventana del reproductor son **asíncronos**: en Windows, crear una ventana desde un comando síncrono (que corre en el hilo principal) se queda bloqueado (se reprodujo: la ventana se quedaba en `about:blank`).
 - Ajustes de mpv: `vo=gpu-next`, `hwdec=auto-safe`, sin atajos ni ratón propios (los lleva la interfaz web), `sub-auto=fuzzy` (subtítulos externos con nombre parecido) y la posición de inicio con `start`.
 - **Subtítulos**: tamaño (`sub-scale`), posición (`sub-pos`) y caja de fondo (`sub-border-style=background-box`, `sub-back-color` semitransparente) o contorno clásico. (Más abajo, cómo quedó: lo general en Ajustes y lo que se cambie en el reproductor, por película.) Mientras se ven los controles, los subtítulos suben (`sub-margin-y`) para no quedar tapados.
-- **Retardos** del audio (pasos de 50 ms) y de los subtítulos (100 ms, también con Z/X como en mpv): por archivo, no se recuerdan (de momento).
+- **Retardos** del audio (pasos de 50 ms) y de los subtítulos (100 ms, también con Z/X como en mpv). Después se recuerdan por archivo (ver más abajo).
 - Los botones de "más/menos" mandan `add` a mpv en vez de calcular el valor en la interfaz: el estado llega 4 veces por segundo y con clics rápidos se sumaba sobre un valor viejo. El volumen y el estilo de los subtítulos los guarda el backend cuando mpv confirma el cambio.
 - ~~**Imagen en imagen**~~: se quitó (ver "Ventana aparte y siempre encima" más abajo).
 - El seguimiento (posición, vista al pasar del umbral, historial) es el mismo que con VLC: la lógica está ahora en `playback::Tracker`, común a los dos.
@@ -178,3 +178,37 @@ Confirmado con el usuario: ver las películas dentro de la app, con todos los fo
 - **Notas propias**: estrellas de 0,5 a 5 (medias incluidas, como Letterboxd) en cada visionado, en la ficha y en el historial. Pulsar la misma nota la quita; también con las flechas del teclado. **Mi nota** de una película es la del visionado más reciente que tenga: sale en la ficha junto a IMDb y TMDb y se puede ordenar por ella.
 - Al marcarse como vista desde el reproductor, el aviso de la esquina pregunta "¿Qué nota le das?" con las estrellas, y dura 30 s en vez de 8.
 - Dependencias nuevas: `csv` y `zip` (solo `deflate`, que es lo que usa la exportación de Letterboxd).
+
+## Fase 5: pulido (2026-10-17)
+
+Descartado con el usuario: seguir mpv y MPC como reproductores externos (el integrado ya lo cubre), filtrar por "mi nota" (no suele poner notas), Trakt y series.
+
+### La biblioteca se actualiza sola
+- Se vigilan las carpetas de la biblioteca (crate `notify`, que en Windows usa `ReadDirectoryChangesW`, también en unidades de red). Si aparece, desaparece o se renombra un vídeo, unos subtítulos, un `.nfo` o una carpeta, se lanza el escaneo normal cuando los cambios llevan **8 s quietos**: una copia larga avisa muchas veces mientras dura y así se escanea una vez, al final. Las copias a medias de K-Movies (`.kmpart`) no cuentan.
+- Si en ese momento ya hay un escaneo o una importación, se reintenta cada 5 s: ese escaneo pudo pasar por la carpeta antes del cambio.
+- Cada minuto se miran las carpetas que no estaban (disco de red apagado); cuando vuelven, se vigilan y se reescanea. Las que desaparecen se dejan de vigilar hasta que vuelvan.
+- Descartado: reescanear cada X minutos (recorre todo el disco de red aunque no haya cambios) y procesar cada evento por separado (habría que replicar la lógica del escaneo; el escaneo ya solo identifica lo nuevo y es rápido).
+- Una prueba crea y borra un vídeo de verdad en una carpeta temporal y comprueba que Windows avisa.
+
+### Teclado
+- En la rejilla: flechas para moverse por los pósters, Re Pág / Av Pág de pantalla en pantalla, Inicio / Fin, Intro abre la ficha y **P** reproduce (o continúa). Si no hay nada con el foco, la primera flecha va al primer póster. Desde la búsqueda, flecha abajo o Intro bajan al primer resultado.
+- Como la rejilla es virtualizada, el póster de destino puede no existir aún: primero se desplaza la fila a la vista y luego se le da el foco.
+- En la ficha, **P** también reproduce; Esc cierra (como antes).
+- No se quitan las flechas a otros controles: solo actúan si el foco está en un póster o en ningún sitio.
+
+### Página de cada persona
+- Al pulsar un actor del reparto o el nombre del director en la ficha se abre su página: foto, cuántas películas suyas tienes y cuáles (en disco, Pendientes y Vistas), por papel y de la más reciente a la más antigua, con su personaje. Pulsar una abre su ficha. "Ver solo las suyas" deja la biblioteca filtrada por esa persona (director o reparto). Enlace a su página de TMDb.
+- Solo las tuyas, sin pedir su filmografía a TMDb: es lo que sirve para el catálogo y funciona sin conexión.
+
+### Rendimiento (biblioteca de prueba de 5.000 películas con pósters, versión final)
+- Base de datos: la lista completa tarda unos 50 ms y ocupa unos 4 MB en JSON (prueba `db::tests::big_library`, ignorada por defecto).
+- Interfaz (medida por CDP en la ventana real de WebView2): la rejilla aparece a los 0,3 s de abrir; desplazamiento a 60 fps tanto lento como rápido, sin ningún fotograma de más de 34 ms; escribir en la búsqueda responde en el fotograma siguiente.
+- Filtrar y ordenar 5.000 películas: unos 5 ms (20.000: unos 22 ms). Lo más lento son las opciones del filtro de reparto (unos 40 ms), que solo se calculan al cambiar la biblioteca.
+- No ha hecho falta cambiar nada.
+
+### Instalador
+- Probado de cero: se instala sin pedir administrador en `%LOCALAPPDATA%\K-Movies` (36,6 MB; lleva `libmpv-2.dll`), arranca, encuentra el reproductor integrado, y al desinstalar se quitan el programa, el acceso del menú Inicio y la entrada de "Desinstalar". Los datos (biblioteca, ajustes, caché) solo se borran si se marca esa casilla al desinstalar.
+- WebView2 viene con Windows 11; si faltara, el instalador descarga su instalador oficial.
+
+### Clave de TMDb
+- Se queda en la base de datos (`%LOCALAPPDATA%`, solo accesible para tu usuario). Guardarla en el almacén de credenciales de Windows no protege de mucho más (cualquier programa que corra como tú puede leer ambos), es una clave gratuita y revocable, y complicaría copiar la carpeta de datos a otro PC.

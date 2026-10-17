@@ -11,6 +11,7 @@ mod players;
 mod scanner;
 mod tmdb;
 mod transfers;
+mod watch;
 
 use regex::Regex;
 use rusqlite::Connection;
@@ -30,6 +31,7 @@ pub struct AppState {
     transfers: transfers::Transfers,
     sessions: playback::Sessions,
     player: player::Slot,
+    watch: watch::Watch,
 }
 
 impl AppState {
@@ -101,19 +103,23 @@ fn list_libraries(state: State<AppState>) -> CmdResult<Vec<db::Library>> {
 }
 
 #[tauri::command]
-fn add_library(state: State<AppState>, path: String) -> CmdResult<()> {
+fn add_library(app: AppHandle, state: State<AppState>, path: String) -> CmdResult<()> {
     state
         .db()
         .execute("INSERT OR IGNORE INTO libraries (path) VALUES (?1)", [path.trim_end_matches(['\\', '/'])])
-        .map(|_| ())
-        .map_err(err)
+        .map_err(err)?;
+    watch::refresh(&app);
+    Ok(())
 }
 
 #[tauri::command]
 fn remove_library(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<()> {
-    let conn = state.db();
-    conn.execute("DELETE FROM libraries WHERE id = ?1", [id]).map_err(err)?;
-    db::prune_orphans(&conn).map_err(err)?;
+    {
+        let conn = state.db();
+        conn.execute("DELETE FROM libraries WHERE id = ?1", [id]).map_err(err)?;
+        db::prune_orphans(&conn).map_err(err)?;
+    }
+    watch::refresh(&app);
     let _ = app.emit("library-changed", ());
     Ok(())
 }
@@ -206,6 +212,12 @@ fn delete_history(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<
     db::prune_orphans(&conn).map_err(err)?;
     let _ = app.emit("library-changed", ());
     Ok(())
+}
+
+/// Una persona (actor o director) con sus películas en K-Movies.
+#[tauri::command]
+fn get_person(state: State<AppState>, id: i64) -> CmdResult<db::PersonPage> {
+    db::person(&state.db(), id).map_err(err)
 }
 
 /// Tu nota de un visionado (0,5–5, en medias estrellas); `None` la quita.
@@ -502,7 +514,10 @@ pub fn run() {
                 transfers: transfers::Transfers::default(),
                 sessions: playback::Sessions::default(),
                 player: player::Slot::default(),
+                watch: watch::Watch::default(),
             });
+            // Archivos nuevos o borrados en las carpetas de la biblioteca: se reescanea solo.
+            watch::start(app.handle());
             // Cerrar K-Movies cierra también la película (y guarda por dónde ibas).
             if let Some(main) = app.get_webview_window("main") {
                 let handle = app.handle().clone();
@@ -528,6 +543,7 @@ pub fn run() {
             set_history_date,
             delete_history,
             set_history_rating,
+            get_person,
             letterboxd_export,
             letterboxd_import,
             clear_progress,

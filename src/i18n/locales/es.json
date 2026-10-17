@@ -224,6 +224,13 @@
     "unmatched_one": "{{count}} no se ha encontrado",
     "unmatched_other": "{{count}} no se han encontrado"
   },
+  "person": {
+    "count_one": "{{count}} película en tu colección",
+    "count_other": "{{count}} películas en tu colección",
+    "filter": "Ver solo las suyas",
+    "director": "Dirección",
+    "cast": "Reparto"
+  },
   "settings": {
     "title": "Ajustes",
     "libraries": "Carpetas de películas",

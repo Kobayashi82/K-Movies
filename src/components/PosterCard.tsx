@@ -38,7 +38,7 @@ export interface CardDisplay {
   year: boolean;
 }
 
-export const PosterCard = memo(function PosterCard({ item, display }: { item: Item; display: CardDisplay }) {
+export const PosterCard = memo(function PosterCard({ item, display, index }: { item: Item; display: CardDisplay; index: number }) {
   const ratings = [
     { source: "imdb", label: "IMDb", value: item.imdbRating },
     { source: "tmdb", label: "TMDb", value: item.tmdbRating },
@@ -56,6 +56,7 @@ export const PosterCard = memo(function PosterCard({ item, display }: { item: It
   return (
     <button
       className="card"
+      data-index={index}
       onMouseEnter={() => useStore.getState().hover(item.id)}
       onFocus={() => useStore.getState().hover(item.id)}
       onClick={open}

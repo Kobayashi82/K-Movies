@@ -63,7 +63,17 @@ export const Toolbar = forwardRef<HTMLInputElement>(function Toolbar(_, searchRe
           value={s.query}
           placeholder={t("toolbar.search")}
           onChange={(e) => actions.setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Escape" && actions.setQuery("")}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") actions.setQuery("");
+            // Flecha abajo o Intro: al primer resultado, para seguir con el teclado.
+            else if (e.key === "ArrowDown" || e.key === "Enter") {
+              const first = document.querySelector<HTMLElement>('.grid-scroll [data-index="0"]');
+              if (first) {
+                e.preventDefault();
+                first.focus();
+              }
+            }
+          }}
           spellCheck={false}
         />
         {s.query && (
