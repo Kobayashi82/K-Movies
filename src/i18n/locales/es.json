@@ -66,7 +66,11 @@
     "searchIn": "Buscar…",
     "showLess": "Ver menos",
     "showAll": "Ver todos ({{count}})",
-    "clearAll": "Quitar todo"
+    "clearAll": "Quitar todo",
+    "myRating": "Mi nota",
+    "unmatchedCount_one": "Solo la no identificada ({{count}})",
+    "unmatchedCount_other": "Solo las no identificadas ({{count}})",
+    "unmatchedHint": "Las que TMDb no ha reconocido por el nombre del archivo. Ábrelas y pulsa «Identificar» para elegir la película correcta."
   },
   "grid": {
     "count_one": "{{count}} película",
@@ -112,7 +116,12 @@
     "progress": "{{position}} de {{duration}}",
     "remaining": "quedan {{time}}",
     "forget": "Olvidar por dónde iba",
-    "playFile": "Reproducir este archivo"
+    "playFile": "Reproducir este archivo",
+    "deleteMovie": "Borrar película",
+    "deleteMovieHint": "Borrar la película (y sus subtítulos externos)",
+    "deleteMovieConfirm_one": "¿Enviar «{{title}}» y sus subtítulos externos a la papelera de reciclaje?",
+    "deleteMovieConfirm_other": "¿Enviar los {{count}} archivos de «{{title}}» y sus subtítulos externos a la papelera de reciclaje?",
+    "externalSubs": "Subtítulos externos"
   },
   "continue": {
     "title": "Seguir viendo",
@@ -141,12 +150,10 @@
     "subHeight": "Altura",
     "subBackground": "Fondo detrás del texto",
     "nextAudio": "siguiente pista de audio",
-    "nextSub": "siguiente subtítulo (o desactivarlos)",
+    "nextSub": "siguiente subtítulo",
     "none": "no hay",
     "aspect": "Proporción: {{value}}",
     "crop": "Recorte: {{value}}",
-    "aspectOff": "Proporción: la del vídeo",
-    "cropOff": "Sin recorte",
     "viewFailed": "No se ha podido cambiar la imagen",
     "up": "Subir",
     "down": "Bajar",
@@ -155,7 +162,13 @@
     "ontopOff": "Quitar «siempre encima»",
     "fullscreen": "Pantalla completa",
     "exitFullscreen": "Salir de pantalla completa",
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "default": "Por defecto",
+    "aspectTitle": "Proporción",
+    "cropTitle": "Recorte",
+    "nextAspect": "siguiente proporción",
+    "nextCrop": "siguiente recorte",
+    "view": "Proporción y recorte"
   },
   "playback": {
     "playing": "Reproduciendo",
@@ -166,7 +179,8 @@
     "askTitle": "¿La has terminado?",
     "askMessage": "Has cerrado «{{title}}». Si la has visto entera, se marcará como vista.",
     "askYes": "Sí, marcar como vista",
-    "askNo": "No"
+    "askNo": "No",
+    "focus": "Ir al reproductor"
   },
   "history": {
     "title": "Historial",
@@ -198,7 +212,7 @@
     "rateIt": "¿Qué nota le das?"
   },
   "letterboxd": {
-    "intro": "Letterboxd no permite conectarse directamente: se pasa con archivos. Tus notas (estrellas) viajan en la exportación.",
+    "intro": "Letterboxd no permite conectarse directamente: se pasa con archivos.",
     "export": "Exportar a Letterboxd",
     "onlyNew": "Solo lo nuevo desde la última exportación",
     "exportButton": "Exportar historial…",
@@ -229,7 +243,16 @@
     "count_other": "{{count}} películas en tu colección",
     "filter": "Ver solo las suyas",
     "director": "Dirección",
-    "cast": "Reparto"
+    "cast": "Reparto",
+    "filter_all": "Todas",
+    "filter_disk": "En disco",
+    "filter_pending": "Pendientes",
+    "filter_watched": "Vistas",
+    "filter_unwatched": "Sin ver",
+    "total": "{{count}} en total",
+    "loading": "Cargando su filmografía…",
+    "none": "Ninguna película con este filtro.",
+    "openTmdb": "Ver en TMDb"
   },
   "settings": {
     "title": "Ajustes",
@@ -244,17 +267,15 @@
     "tmdbPlaceholder": "Clave de API o token de acceso de lectura",
     "show": "Mostrar",
     "hide": "Ocultar",
-    "save": "Guardar",
     "keyInvalid": "TMDb ha rechazado esta clave.",
     "keyNetwork": "No se puede conectar con TMDb. Revisa la conexión.",
     "keyOk": "Clave guardada. Se está identificando tu biblioteca.",
     "metadataLanguage": "Idioma de la información",
-    "metadataLanguageHint": "Sinopsis, títulos y géneros se descargan en este idioma; lo que falte, en inglés.",
+    "metadataLanguageHint": "Títulos, sinopsis, géneros y pósters se descargan en este idioma (lo que falte, en inglés). Al cambiarlo se actualizan solas todas las fichas.",
     "player": "Reproductor",
     "playerApp": "Abrir las películas con",
-    "playerAuto": "Automático (el integrado o, si no, el primero que se encuentre)",
-    "playerInternal": "K-Movies (integrado)",
-    "internalPlayer": "Reproductor integrado",
+    "playerInternal": "K-Movies",
+    "internalPlayer": "Reproductor de K-Movies",
     "audioLang": "Audio preferido",
     "audioOriginal": "Versión original",
     "subLang": "Subtítulos",
@@ -284,7 +305,7 @@
     "appearance": "Apariencia",
     "language": "Idioma de la interfaz",
     "system": "El del sistema",
-    "languageHint": "Para añadir un idioma, copia un archivo de traducción en {{path}} y reinicia.",
+    "languageHint": "Para añadir un idioma, copia un archivo de traducción en esta carpeta y reinicia:",
     "theme": "Tema",
     "theme_system": "Sistema",
     "theme_dark": "Oscuro",
@@ -303,7 +324,26 @@
     "posterYear": "Mostrar el año junto al título",
     "posterRating_both": "Ambas",
     "watchedThreshold": "Marcar como vista al llegar al",
-    "trackingHint": "Con el reproductor integrado o con VLC, K-Movies sabe por dónde vas: guarda la posición, continúa desde ahí y marca la película como vista. Con otros reproductores, al cerrarlos te pregunta si la terminaste."
+    "trackingHint": "Con el reproductor integrado o con VLC, K-Movies sabe por dónde vas: guarda la posición, continúa desde ahí y marca la película como vista. Con otros reproductores, al cerrarlos te pregunta si la terminaste.",
+    "nav_libraries": "Carpetas",
+    "nav_tmdb": "Información",
+    "nav_player": "Reproductor",
+    "nav_window": "Ventana",
+    "nav_appearance": "Apariencia",
+    "nav_about": "Acerca de",
+    "window": "Ventana e inicio",
+    "autostart": "Iniciar con Windows",
+    "startMinimized": "Iniciar minimizado",
+    "closeToTray": "Al cerrar la ventana, seguir abierto en el área de notificación",
+    "minimizeToTray": "Al minimizar, esconderlo en el área de notificación",
+    "playMinimize": "Al reproducir una película",
+    "playMinimize_none": "No hacer nada",
+    "playMinimize_minimize": "Minimizar K-Movies",
+    "playMinimize_tray": "Esconderlo en el área de notificación",
+    "metadataAuto": "Automático: el de la interfaz ({{language}})",
+    "subOutline": "Contorno negro en las letras",
+    "playerFullscreen": "Abrir las películas en pantalla completa",
+    "playRestore": "Al terminar la película, volver a mostrar K-Movies"
   },
   "welcome": {
     "title": "Bienvenido a K-Movies",
@@ -322,7 +362,8 @@
     "badKey": "Tu clave de TMDb no es válida.",
     "failed": "El escaneo ha fallado",
     "refreshing": "Actualizando información",
-    "letterboxd": "Importando de Letterboxd"
+    "letterboxd": "Importando de Letterboxd",
+    "frames": "Sacando fotogramas"
   },
   "format": {
     "hoursMinutes": "{{h}} h {{m}} min",
@@ -375,12 +416,24 @@
     "letterboxd_empty": "No hay nada que importar en ese archivo.",
     "letterboxd_not_export": "Ese ZIP no parece una exportación de Letterboxd.",
     "busy": "Espera a que termine lo que se está haciendo (escaneo o importación).",
-    "no_video": "Aún no hay imagen."
+    "no_video": "Aún no hay imagen.",
+    "is_playing": "Se está reproduciendo: ciérrala antes de borrarla.",
+    "play_failed": "No se ha podido abrir el archivo."
   },
   "conflict": {
     "title": "Ese nombre ya existe",
     "message": "Ya hay un archivo llamado «{{name}}» en el destino. ¿Es otra película? Si guardas los dos, el nuevo se llamará «{{renamed}}».",
     "rename": "Guardar los dos",
     "replace": "Reemplazar"
+  },
+  "menu": {
+    "open": "Ver la ficha",
+    "goToPlayer": "Ir al reproductor",
+    "removePending": "Quitar de Pendientes",
+    "fixMatch": "Corregir la identificación"
+  },
+  "tray": {
+    "show": "Mostrar",
+    "quit": "Salir"
   }
 }

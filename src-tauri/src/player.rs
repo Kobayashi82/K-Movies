@@ -1,18 +1,23 @@
 //! Reproductor integrado: mpv dibuja el vídeo dentro de una ventana de K-Movies y la interfaz web
-//! (transparente) pone los controles encima.
+//! (transparente) pone los controles encima. Puede haber varias películas a la vez, cada una en su
+//! ventana (`player-1`, `player-2`…) con su propio mpv.
 
 use crate::mpv::{Event, Format, Mpv, Value};
 use crate::playback::{Resolved, Tracker};
-use crate::{AppState, db};
+use crate::{AppState, db, library, tray};
 use anyhow::{Result, bail};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
-pub const LABEL: &str = "player";
+/// Las ventanas del reproductor se llaman `player-1`, `player-2`…
+pub const PREFIX: &str = "player-";
+
+/// Si no llega la imagen (p. ej. un archivo solo de audio), la ventana se enseña igualmente.
+const REVEAL_AFTER: Duration = Duration::from_secs(3);
 
 /// Lo que ve la ventana del reproductor (evento `player-state`).
 #[derive(Serialize, Clone, Default)]
@@ -39,6 +44,9 @@ pub struct PlayerState {
     pub ontop: bool,
     /// Dónde queda la imagen en la ventana (cambia con la proporción, el recorte y el tamaño).
     pub frame: Frame,
+    /// Proporción forzada (`16:9`) y recorte (`2.39:1`) de esta sesión; vacío = por defecto.
+    pub aspect: String,
+    pub crop: String,
 }
 
 /// Alto de la ventana y bandas negras de arriba y abajo, en píxeles reales (`osd-dimensions`).
@@ -49,36 +57,64 @@ pub struct Frame {
     pub mb: f64,
 }
 
-#[derive(Default)]
-pub struct Slot {
+/// Una película abierta en el reproductor integrado.
+struct Session {
+    item_id: i64,
     mpv: Mutex<Option<Arc<Mpv>>>,
     state: Mutex<PlayerState>,
     /// Se han cambiado a mano pistas, retardos o aspecto de los subtítulos: al cerrar se guardan
     /// para ese archivo.
     touched: AtomicBool,
+    /// La ventana ya se ha enseñado (nace oculta hasta que hay imagen).
+    shown: AtomicBool,
+    /// Ajuste "Abrir en pantalla completa": se pone al enseñar la ventana.
+    fullscreen_on_start: bool,
 }
 
-fn slot(app: &AppHandle) -> &Slot {
+impl Session {
+    fn mpv(&self) -> Result<Arc<Mpv>> {
+        match self.mpv.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            Some(m) => Ok(m),
+            None => bail!("not_playing"),
+        }
+    }
+
+    fn with_state<R>(&self, f: impl FnOnce(&mut PlayerState) -> R) -> R {
+        f(&mut self.state.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    fn state(&self) -> PlayerState {
+        self.with_state(|s| s.clone())
+    }
+}
+
+#[derive(Default)]
+pub struct Players {
+    sessions: Mutex<HashMap<String, Arc<Session>>>,
+    next: AtomicU64,
+}
+
+fn players(app: &AppHandle) -> &Players {
     &app.state::<AppState>().inner().player
 }
 
-fn mpv(app: &AppHandle) -> Result<Arc<Mpv>> {
-    match slot(app).mpv.lock().unwrap_or_else(|e| e.into_inner()).clone() {
-        Some(m) => Ok(m),
+fn sessions(app: &AppHandle) -> std::sync::MutexGuard<'_, HashMap<String, Arc<Session>>> {
+    players(app).sessions.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn session(app: &AppHandle, label: &str) -> Result<Arc<Session>> {
+    match sessions(app).get(label) {
+        Some(s) => Ok(s.clone()),
         None => bail!("not_playing"),
     }
 }
 
-fn with_state<R>(app: &AppHandle, f: impl FnOnce(&mut PlayerState) -> R) -> R {
-    f(&mut slot(app).state.lock().unwrap_or_else(|e| e.into_inner()))
+pub fn state(app: &AppHandle, label: &str) -> PlayerState {
+    session(app, label).map(|s| s.state()).unwrap_or_default()
 }
 
-pub fn state(app: &AppHandle) -> PlayerState {
-    with_state(app, |s| s.clone())
-}
-
-fn emit_state(app: &AppHandle) {
-    let _ = app.emit_to(LABEL, "player-state", state(app));
+fn emit_state(app: &AppHandle, label: &str, s: &Session) {
+    let _ = app.emit_to(label, "player-state", s.state());
 }
 
 /// Códigos con los que suelen venir etiquetadas las pistas de cada idioma.
@@ -113,7 +149,9 @@ pub struct SubStyle {
     /// Vacío = la letra por defecto de mpv (sin serifa del sistema).
     pub font: String,
     pub bold: bool,
-    /// Grosor del contorno (con caja de fondo, el relleno de la caja).
+    /// Contorno negro alrededor de las letras.
+    pub outline: bool,
+    /// Grosor del contorno (con caja de fondo, también el relleno de la caja).
     pub border: f64,
     pub shadow: f64,
     pub ass_override: bool,
@@ -133,6 +171,7 @@ impl SubStyle {
             color: settings.get("subColor").filter(|c| c.len() == 7 && c.starts_with('#')).cloned().unwrap_or("#FFFFFF".into()),
             font: settings.get("subFont").cloned().unwrap_or_default(),
             bold: flag("subBold", false),
+            outline: flag("subOutline", false),
             border: num("subBorder", 3.0, 0.0, 8.0),
             shadow: num("subShadow", 0.0, 0.0, 6.0),
             ass_override: flag("subAssOverride", false),
@@ -153,6 +192,9 @@ impl SubStyle {
             // Caja semitransparente detrás del texto (lo que no hace Jellyfin) o el contorno clásico.
             ("sub-border-style", if self.background { "background-box" } else { "outline-and-shadow" }.into()),
             ("sub-back-color", format!("#{alpha:02X}000000")),
+            // El contorno de las letras se quita haciéndolo transparente: el grosor sigue sirviendo
+            // de relleno de la caja.
+            ("sub-outline-color", if self.outline { "#FF000000" } else { "#00000000" }.into()),
             ("sub-color", self.color.clone()),
             ("sub-bold", if self.bold { "yes" } else { "no" }.into()),
             ("sub-border-size", format!("{:.1}", self.border)),
@@ -192,25 +234,45 @@ fn preferences(settings: &HashMap<String, String>, style: &SubStyle) -> Vec<(&'s
     out
 }
 
-pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
-    if app.get_webview_window(LABEL).is_some() {
-        bail!("already_playing");
+/// Tamaño y posición de la última ventana del reproductor que se cerró (en píxeles reales).
+fn saved_geometry(settings: &HashMap<String, String>) -> Option<(i32, i32, u32, u32)> {
+    let v: Vec<i64> = settings.get("playerWindow")?.split(',').filter_map(|n| n.trim().parse().ok()).collect();
+    match v[..] {
+        [x, y, w, h] if w >= 320 && h >= 180 => Some((x as i32, y as i32, w as u32, h as u32)),
+        _ => None,
     }
+}
+
+pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
+    let n = players(app).next.fetch_add(1, Ordering::SeqCst) + 1;
+    let label = format!("{PREFIX}{n}");
     let settings = db::settings(&app.state::<AppState>().db())?;
     let volume = settings.get("playerVolume").and_then(|v| v.parse::<f64>().ok()).unwrap_or(100.0);
+    let ontop = settings.get("playerOntop").is_some_and(|v| v == "true");
     let file_prefs = db::file_prefs(&app.state::<AppState>().db(), r.file_id)?;
     let general = SubStyle::from_settings(&settings);
     let style = general.clone().with_file(file_prefs.as_ref());
 
-    let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html#player".into()))
+    // Nace oculta y se enseña cuando ya hay imagen: si no, se verían un momento solo los bordes
+    // de una ventana transparente.
+    let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html#player".into()))
         .title(&r.title)
         .inner_size(1280.0, 720.0)
         .min_inner_size(320.0, 180.0)
         .center()
         .decorations(false)
         .transparent(true)
-        .focused(true)
+        .always_on_top(ontop)
+        .visible(false)
         .build()?;
+    // Donde estaba la última; si ya hay otra abierta, un poco desplazada para que no se tapen.
+    if let Some((x, y, w, h)) = saved_geometry(&settings) {
+        let offset = 32 * sessions(app).len() as i32;
+        if tray::on_screen(app, x + offset, y + offset, w) {
+            let _ = window.set_size(PhysicalSize::new(w, h));
+            let _ = window.set_position(PhysicalPosition::new(x + offset, y + offset));
+        }
+    }
     let hwnd = window.hwnd()?.0 as isize;
 
     let mut options: Vec<(&str, String)> = vec![
@@ -260,37 +322,67 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
     }
     mpv.command(&["loadfile", &r.file.to_string_lossy()])?;
 
-    let fresh = PlayerState {
+    let session = Arc::new(Session {
         item_id: r.item_id,
-        title: r.title.clone(),
-        position: r.start,
-        volume,
-        sub_scale: style.scale,
-        sub_margin: style.margin(),
-        sub_background: style.background,
-        ..Default::default()
-    };
-    with_state(app, |s| *s = fresh);
-    slot(app).touched.store(false, Ordering::SeqCst);
-    *slot(app).mpv.lock().unwrap_or_else(|e| e.into_inner()) = Some(mpv.clone());
+        mpv: Mutex::new(Some(mpv.clone())),
+        state: Mutex::new(PlayerState {
+            item_id: r.item_id,
+            title: r.title.clone(),
+            position: r.start,
+            volume,
+            sub_scale: style.scale,
+            sub_margin: style.margin(),
+            sub_background: style.background,
+            ontop,
+            ..Default::default()
+        }),
+        touched: AtomicBool::new(false),
+        shown: AtomicBool::new(false),
+        fullscreen_on_start: settings.get("playerFullscreen").is_some_and(|v| v == "true"),
+    });
+    sessions(app).insert(label.clone(), session.clone());
 
     // Cerrar la ventana (Alt+F4, botón) para mpv primero; la ventana se destruye al acabar.
-    let handle = app.clone();
+    let (handle, l) = (app.clone(), label.clone());
     window.on_window_event(move |e| {
         if let WindowEvent::CloseRequested { api, .. } = e {
             api.prevent_close();
-            close(&handle);
+            close(&handle, &l);
         }
     });
+    // Por si la imagen no llega nunca (solo audio, un error): se enseña igualmente.
+    {
+        let (app, label, session) = (app.clone(), label.clone(), session.clone());
+        std::thread::spawn(move || {
+            std::thread::sleep(REVEAL_AFTER);
+            reveal(&app, &label, &session);
+        });
+    }
 
-    let tracker = Tracker::begin(app, &r, "K-Movies".into(), true);
-    let session = Session { file_id: r.file_id, prefs: file_prefs, general, hwnd };
+    let tracker = Tracker::begin(app, &r, "K-Movies".into(), true, Some(label.clone()));
+    let context = Context { label, file_id: r.file_id, prefs: file_prefs, general, hwnd };
     let app = app.clone();
-    std::thread::spawn(move || event_loop(app, mpv, tracker, session));
+    std::thread::spawn(move || event_loop(app, mpv, session, tracker, context));
     Ok(())
 }
 
-struct Session {
+/// Enseña la ventana la primera vez (nace oculta).
+fn reveal(app: &AppHandle, label: &str, session: &Session) {
+    if session.shown.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    if let Some(w) = app.get_webview_window(label) {
+        let _ = w.show();
+        let _ = w.set_focus();
+        if session.fullscreen_on_start && w.set_fullscreen(true).is_ok() {
+            session.with_state(|s| s.fullscreen = true);
+            emit_state(app, label, session);
+        }
+    }
+}
+
+struct Context {
+    label: String,
     file_id: i64,
     /// Lo que se eligió la última vez para este archivo.
     prefs: Option<db::FilePrefs>,
@@ -346,8 +438,8 @@ fn current_prefs(s: &PlayerState, general: &SubStyle) -> db::FilePrefs {
 }
 
 /// Lee los eventos de mpv hasta que termina la película o se cierra el reproductor.
-fn event_loop(app: AppHandle, mpv: Arc<Mpv>, mut tracker: Tracker, session: Session) {
-    let hwnd = session.hwnd;
+fn event_loop(app: AppHandle, mpv: Arc<Mpv>, session: Arc<Session>, mut tracker: Tracker, ctx: Context) {
+    let label = ctx.label.as_str();
     let mut dirty = true;
     let mut emitted = Instant::now();
     let mut tracked = Instant::now();
@@ -357,22 +449,24 @@ fn event_loop(app: AppHandle, mpv: Arc<Mpv>, mut tracker: Tracker, session: Sess
             Some(Event::Shutdown) => break,
             Some(Event::EndFile { reason, error }) => {
                 if reason == 4 {
-                    let _ = app.emit_to(LABEL, "player-error", error);
                     eprintln!("[player] end-file error {error}");
+                    let title = session.with_state(|s| s.title.clone());
+                    library::notice(&app, "playError", title, Some(session.item_id), Some("play_failed".into()));
                 }
                 break;
             }
             Some(Event::FileLoaded) => {
-                if let Some(p) = &session.prefs {
+                if let Some(p) = &ctx.prefs {
                     restore_prefs(&mpv, p);
                 }
-                video_to_back(hwnd);
+                video_to_back(ctx.hwnd);
                 dirty = true;
             }
             Some(Event::VideoReconfig) => {
-                video_to_back(hwnd);
+                video_to_back(ctx.hwnd);
                 dirty = true;
             }
+            Some(Event::PlaybackRestart) => reveal(&app, label, &session),
             Some(Event::Property { name, value }) => {
                 if name == "track-list" {
                     let tracks: serde_json::Value =
@@ -382,14 +476,14 @@ fn event_loop(app: AppHandle, mpv: Arc<Mpv>, mut tracker: Tracker, session: Sess
                     if tracks.as_array().is_some_and(|t| !t.is_empty()) {
                         last_tracks = tracks.clone();
                     }
-                    with_state(&app, |s| s.tracks = tracks);
+                    session.with_state(|s| s.tracks = tracks);
                 } else if name == "osd-dimensions" {
                     let num = |k: &str| mpv.get(&format!("osd-dimensions/{k}")).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
                     let frame = Frame { h: num("h"), mt: num("mt"), mb: num("mb") };
-                    with_state(&app, |s| s.frame = frame);
+                    session.with_state(|s| s.frame = frame);
                 } else {
-                    remember(&app, &name, &value);
-                    with_state(&app, |s| apply(s, &name, value));
+                    remember(&app, &session, &name, &value);
+                    session.with_state(|s| apply(s, &name, value));
                 }
                 dirty = true;
             }
@@ -397,43 +491,53 @@ fn event_loop(app: AppHandle, mpv: Arc<Mpv>, mut tracker: Tracker, session: Sess
         }
         // La interfaz se actualiza 4 veces por segundo como mucho; el seguimiento, una.
         if dirty && emitted.elapsed() >= Duration::from_millis(250) {
-            emit_state(&app);
+            emit_state(&app, label, &session);
             emitted = Instant::now();
             dirty = false;
         }
         if tracked.elapsed() >= Duration::from_secs(1) {
-            let s = state(&app);
+            let s = session.state();
             if let (Some(pos), Some(len)) = (s.position, s.duration) {
                 tracker.status(pos, len, s.paused);
             }
             tracked = Instant::now();
         }
     }
-    let s = state(&app);
+    let s = session.state();
     if let (Some(pos), Some(len)) = (s.position, s.duration) {
         tracker.status(pos, len, s.paused);
     }
-    tracker.finish();
-    if slot(&app).touched.swap(false, Ordering::SeqCst) {
-        let snapshot = PlayerState { tracks: last_tracks, ..s };
-        let prefs = current_prefs(&snapshot, &session.general);
-        if let Err(e) = db::save_file_prefs(&app.state::<AppState>().db(), session.file_id, &prefs) {
+    if session.touched.swap(false, Ordering::SeqCst) {
+        let snapshot = PlayerState { tracks: last_tracks, ..s.clone() };
+        let prefs = current_prefs(&snapshot, &ctx.general);
+        if let Err(e) = db::save_file_prefs(&app.state::<AppState>().db(), ctx.file_id, &prefs) {
             eprintln!("[player] {e:#}");
         }
     }
     // Primero mpv (destruye su ventana de vídeo) y después la nuestra.
-    *slot(&app).mpv.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *session.mpv.lock().unwrap_or_else(|e| e.into_inner()) = None;
     drop(mpv);
-    if let Some(w) = app.get_webview_window(LABEL) {
+    if let Some(w) = app.get_webview_window(label) {
+        // La próxima ventana del reproductor se abre donde estaba esta (salvo en pantalla completa).
+        if !s.fullscreen
+            && session.shown.load(Ordering::SeqCst)
+            && let (Ok(pos), Ok(size)) = (w.outer_position(), w.inner_size())
+        {
+            let value = format!("{},{},{},{}", pos.x, pos.y, size.width, size.height);
+            let _ = db::set_setting(&app.state::<AppState>().db(), "playerWindow", &value);
+        }
         let _ = w.destroy();
     }
+    sessions(&app).remove(label);
+    // Al final: si era la última película, K-Movies vuelve a enseñarse (si se escondió al reproducir).
+    tracker.finish();
 }
 
 /// El volumen se recuerda para la próxima película. Lo demás que se cambie durante la película
 /// (tamaño y altura de los subtítulos, fondo) vale solo para esa sesión: lo general va en Ajustes.
-fn remember(app: &AppHandle, name: &str, value: &Value) {
+fn remember(app: &AppHandle, session: &Session, name: &str, value: &Value) {
     if let ("volume", Value::Double(v)) = (name, value)
-        && with_state(app, |s| (s.volume - v).abs() > 0.001)
+        && session.with_state(|s| (s.volume - v).abs() > 0.001)
     {
         let _ = db::set_setting(&app.state::<AppState>().db(), "playerVolume", &format!("{v:.0}"));
     }
@@ -471,73 +575,101 @@ fn video_to_back(parent: isize) {
 }
 
 // ---------------------------------------------------------------------------
-// Órdenes desde la interfaz
+// Órdenes desde la interfaz (`label`: la ventana del reproductor que las manda)
 
 /// Lo que se recuerda por archivo si se cambia a mano.
 const PER_FILE: &[&str] = &["aid", "sid", "audio-delay", "sub-delay", "sub-scale"];
 
-pub fn command(app: &AppHandle, args: &[String]) -> Result<()> {
+pub fn command(app: &AppHandle, label: &str, args: &[String]) -> Result<()> {
+    let s = session(app, label)?;
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     if args.first() == Some(&"add") && args.get(1).is_some_and(|p| PER_FILE.contains(p)) {
-        slot(app).touched.store(true, Ordering::SeqCst);
+        s.touched.store(true, Ordering::SeqCst);
     }
-    mpv(app)?.command(&args)
+    s.mpv()?.command(&args)
 }
 
 /// Propiedades que la interfaz puede cambiar (no todas las de mpv).
 const SETTABLE: &[&str] =
     &["pause", "volume", "mute", "aid", "sid", "audio-delay", "sub-delay", "sub-scale", "sub-margin-y", "sub-pos"];
 
-pub fn set(app: &AppHandle, name: &str, value: &str) -> Result<()> {
+pub fn set(app: &AppHandle, label: &str, name: &str, value: &str) -> Result<()> {
     if !SETTABLE.contains(&name) {
         bail!("property not allowed: {name}");
     }
+    let s = session(app, label)?;
     if PER_FILE.contains(&name) {
-        slot(app).touched.store(true, Ordering::SeqCst);
+        s.touched.store(true, Ordering::SeqCst);
     }
-    mpv(app)?.set(name, value)
+    s.mpv()?.set(name, value)
 }
 
 /// Caja de fondo de los subtítulos sí o no, para esta película.
-pub fn set_sub_background(app: &AppHandle, on: bool) -> Result<()> {
-    let m = mpv(app)?;
-    m.set("sub-border-style", if on { "background-box" } else { "outline-and-shadow" })?;
-    slot(app).touched.store(true, Ordering::SeqCst);
-    with_state(app, |s| s.sub_background = on);
-    emit_state(app);
+pub fn set_sub_background(app: &AppHandle, label: &str, on: bool) -> Result<()> {
+    let s = session(app, label)?;
+    s.mpv()?.set("sub-border-style", if on { "background-box" } else { "outline-and-shadow" })?;
+    s.touched.store(true, Ordering::SeqCst);
+    s.with_state(|st| st.sub_background = on);
+    emit_state(app, label, &s);
     Ok(())
 }
 
 /// Sube o baja los subtítulos `percent` puntos (de 1 en 1, entre 0 y 40 % del alto), para esta
 /// película. Se suma aquí, sobre el valor real, para que los clics rápidos no se pisen. La interfaz
 /// lo aplica con `sub-margin-y`, porque mientras se ven los controles los sube más.
-pub fn add_sub_margin(app: &AppHandle, percent: f64) -> Result<()> {
-    mpv(app)?;
-    slot(app).touched.store(true, Ordering::SeqCst);
-    with_state(app, |s| s.sub_margin = ((s.sub_margin / 7.2).round() + percent).clamp(0.0, 40.0) * 7.2);
-    emit_state(app);
+pub fn add_sub_margin(app: &AppHandle, label: &str, percent: f64) -> Result<()> {
+    let s = session(app, label)?;
+    s.mpv()?;
+    s.touched.store(true, Ordering::SeqCst);
+    s.with_state(|st| st.sub_margin = ((st.sub_margin / 7.2).round() + percent).clamp(0.0, 40.0) * 7.2);
+    emit_state(app, label, &s);
     Ok(())
 }
 
 /// Proporción forzada (`16:9`; vacío = la del vídeo), como la tecla A de VLC. Quita el recorte.
 /// Vale solo para esta sesión.
-pub fn set_aspect(app: &AppHandle, ratio: &str) -> Result<()> {
-    let m = mpv(app)?;
+pub fn set_aspect(app: &AppHandle, label: &str, ratio: &str) -> Result<()> {
+    let s = session(app, label)?;
+    let m = s.mpv()?;
     m.set("video-crop", "")?;
-    m.set("video-aspect-override", if ratio.is_empty() { "no" } else { ratio })
+    m.set("video-aspect-override", if ratio.is_empty() { "no" } else { ratio })?;
+    s.with_state(|st| {
+        st.aspect = ratio.to_string();
+        st.crop.clear();
+    });
+    emit_state(app, label, &s);
+    Ok(())
 }
 
-/// Recorta la imagen a una proporción (ancho / alto; 0 = sin recorte), como la tecla C de VLC.
+/// Recorta la imagen a una proporción (`2.39:1`; vacío = sin recorte), como la tecla C de VLC.
 /// Quita la proporción forzada. Vale solo para esta sesión.
-pub fn set_crop(app: &AppHandle, ratio: f64) -> Result<()> {
-    let m = mpv(app)?;
+pub fn set_crop(app: &AppHandle, label: &str, ratio: &str) -> Result<()> {
+    let s = session(app, label)?;
+    let m = s.mpv()?;
     m.set("video-aspect-override", "no")?;
-    if ratio <= 0.0 {
-        return m.set("video-crop", "");
+    let value = ratio_value(ratio);
+    if value <= 0.0 {
+        m.set("video-crop", "")?;
+    } else {
+        let num = |k: &str| m.get(&format!("video-params/{k}")).and_then(|v| v.parse::<f64>().ok());
+        let (Some(w), Some(h)) = (num("w"), num("h")) else { bail!("no_video") };
+        m.set("video-crop", &crop_rect(w, h, num("par").unwrap_or(1.0), value))?;
     }
-    let num = |k: &str| m.get(&format!("video-params/{k}")).and_then(|v| v.parse::<f64>().ok());
-    let (Some(w), Some(h)) = (num("w"), num("h")) else { bail!("no_video") };
-    m.set("video-crop", &crop_rect(w, h, num("par").unwrap_or(1.0), ratio))
+    s.with_state(|st| {
+        st.crop = if value > 0.0 { ratio.to_string() } else { String::new() };
+        st.aspect.clear();
+    });
+    emit_state(app, label, &s);
+    Ok(())
+}
+
+/// `2.39:1` → 2,39; `16:9` → 1,78. Vacío o mal escrito → 0.
+fn ratio_value(ratio: &str) -> f64 {
+    let mut parts = ratio.split(':').map(|p| p.trim().parse::<f64>().ok());
+    match (parts.next().flatten(), parts.next().unwrap_or(Some(1.0))) {
+        (Some(w), Some(h)) if w > 0.0 && h > 0.0 => w / h,
+        _ => 0.0,
+    }
 }
 
 /// Rectángulo `video-crop` (`AnchoxAlto+x+y`, en píxeles del vídeo) que deja la imagen en
@@ -548,43 +680,68 @@ fn crop_rect(w: f64, h: f64, par: f64, ratio: f64) -> String {
     format!("{cw}x{ch}+{}+{}", ((w - cw) / 2.0).round(), ((h - ch) / 2.0).round())
 }
 
-pub fn close(app: &AppHandle) {
-    match mpv(app) {
+pub fn close(app: &AppHandle, label: &str) {
+    match session(app, label).and_then(|s| s.mpv()) {
         Ok(m) => {
             let _ = m.command(&["quit"]);
             m.wakeup();
         }
         // Sin mpv (p. ej. falló al arrancar): se cierra la ventana sin más.
         Err(_) => {
-            if let Some(w) = app.get_webview_window(LABEL) {
+            if let Some(w) = app.get_webview_window(label) {
                 let _ = w.destroy();
             }
         }
     }
 }
 
-pub fn set_fullscreen(app: &AppHandle, on: bool) -> Result<()> {
-    let Some(w) = app.get_webview_window(LABEL) else { bail!("not_playing") };
-    w.set_fullscreen(on)?;
-    with_state(app, |s| s.fullscreen = on);
-    emit_state(app);
-    Ok(())
-}
-
-/// Siempre encima de las demás ventanas.
-pub fn set_ontop(app: &AppHandle, on: bool) -> Result<()> {
-    let Some(w) = app.get_webview_window(LABEL) else { bail!("not_playing") };
-    w.set_always_on_top(on)?;
-    with_state(app, |s| s.ontop = on);
-    emit_state(app);
-    Ok(())
-}
-
-/// Cerrar K-Movies cierra también la película (y guarda por dónde ibas).
-pub fn on_main_event(app: &AppHandle, event: &WindowEvent) {
-    if let WindowEvent::CloseRequested { .. } = event {
-        close(app);
+/// Cierra todas las películas (cada una guarda por dónde iba).
+pub fn close_all(app: &AppHandle) {
+    let labels: Vec<String> = sessions(app).keys().cloned().collect();
+    for label in labels {
+        close(app, &label);
     }
+}
+
+/// Trae al frente la ventana del reproductor.
+pub fn focus(app: &AppHandle, label: &str) {
+    if let Some(w) = app.get_webview_window(label) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// Trae al frente el reproductor de esa película, si se está viendo en el integrado.
+pub fn focus_item(app: &AppHandle, item_id: i64) -> bool {
+    let label = sessions(app).iter().find(|(_, s)| s.item_id == item_id).map(|(l, _)| l.clone());
+    match label {
+        Some(l) => {
+            focus(app, &l);
+            true
+        }
+        None => false,
+    }
+}
+
+pub fn set_fullscreen(app: &AppHandle, label: &str, on: bool) -> Result<()> {
+    let s = session(app, label)?;
+    let Some(w) = app.get_webview_window(label) else { bail!("not_playing") };
+    w.set_fullscreen(on)?;
+    s.with_state(|st| st.fullscreen = on);
+    emit_state(app, label, &s);
+    Ok(())
+}
+
+/// Siempre encima de las demás ventanas. Se recuerda para las próximas películas.
+pub fn set_ontop(app: &AppHandle, label: &str, on: bool) -> Result<()> {
+    let s = session(app, label)?;
+    let Some(w) = app.get_webview_window(label) else { bail!("not_playing") };
+    w.set_always_on_top(on)?;
+    s.with_state(|st| st.ontop = on);
+    let _ = db::set_setting(&app.state::<AppState>().db(), "playerOntop", if on { "true" } else { "false" });
+    emit_state(app, label, &s);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -605,6 +762,8 @@ mod tests {
         assert_eq!(o["sub-border-style"], "background-box");
         assert_eq!(o["sub-back-color"], "#A6000000");
         assert_eq!(o["sub-bold"], "no");
+        // Sin contorno en las letras por defecto.
+        assert_eq!(o["sub-outline-color"], "#00000000");
         assert!(!o.contains_key("sub-font"));
     }
 
@@ -617,6 +776,7 @@ mod tests {
             ("subBackOpacity", "100"),
             ("subFont", "Verdana"),
             ("subBold", "true"),
+            ("subOutline", "true"),
             ("subBorder", "50"),
             ("subColor", "#FFD83D"),
         ]);
@@ -624,6 +784,7 @@ mod tests {
         assert_eq!(o["sub-margin-y"], "72");
         assert_eq!(o["sub-border-style"], "outline-and-shadow");
         assert_eq!(o["sub-back-color"], "#FF000000");
+        assert_eq!(o["sub-outline-color"], "#FF000000");
         assert_eq!(o["sub-font"], "Verdana");
         assert_eq!(o["sub-bold"], "yes");
         // Valores fuera de rango se recortan.
@@ -695,6 +856,14 @@ mod tests {
         assert_eq!(crop_rect(1920.0, 1080.0, 1.0, 4.0 / 3.0), "1440x1080+240+0");
         // DVD anamórfico (720x576 que se ve 16:9) recortado a 4:3.
         assert_eq!(crop_rect(720.0, 576.0, 64.0 / 45.0, 4.0 / 3.0), "540x576+90+0");
+    }
+
+    #[test]
+    fn ratios() {
+        assert!((ratio_value("2.39:1") - 2.39).abs() < 1e-9);
+        assert!((ratio_value("16:9") - 16.0 / 9.0).abs() < 1e-9);
+        assert_eq!(ratio_value(""), 0.0);
+        assert_eq!(ratio_value("x:1"), 0.0);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 import { CalendarPlus, Hand, History as HistoryIcon, Play, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { errorText } from "../actions";
+import { errorText, movieMenu, openMenu } from "../actions";
 import { api, parseDbDate, type HistoryEntry, type Item } from "../api";
 import { useStore } from "../store";
 import { formatDate } from "../util";
@@ -230,7 +230,7 @@ export function HistoryList({ items }: { items: Item[] }) {
   }
 
   return (
-    <div className="grid-scroll">
+    <div className="grid-scroll" onMouseLeave={() => useStore.getState().hover(null)}>
       <div className="history">
         {months.map((m) => (
           <section key={m.key} className="history-month">
@@ -240,7 +240,12 @@ export function HistoryList({ items }: { items: Item[] }) {
             </h3>
             <ul>
               {m.rows.map(({ entry, item, date }) => (
-                <li key={entry.id} className="history-row">
+                <li
+                  key={entry.id}
+                  className="history-row"
+                  onMouseEnter={() => useStore.getState().hover(item.id)}
+                  onContextMenu={(e) => openMenu(e, movieMenu(item))}
+                >
                   <EntryDate entry={entry}>
                     <span className="history-day">
                       <strong>{date.getDate()}</strong>

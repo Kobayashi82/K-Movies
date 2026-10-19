@@ -3,8 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import { activeFilterCount, LIST_FACETS, type Filters, type RangeFacet } from "../filters";
 import { useStore } from "../store";
-import { formatNumber, formatRuntime } from "../util";
-import { labelFor } from "./FilterPanel";
+import { labelFor, rangeFormat } from "./FilterPanel";
 
 interface Chip {
   key: string;
@@ -28,12 +27,8 @@ export function ActiveFilters({ count }: { count: number }) {
       chips.push({ key: `${facet}:${v}`, label: labelFor(facet, v), remove: (f) => ({ ...f, [facet]: f[facet].filter((x) => x !== v) }) });
     }
   }
-  const ranges: [RangeFacet, (v: number) => string][] = [
-    ["imdb", (v) => formatNumber(v)],
-    ["years", String],
-    ["runtime", formatRuntime],
-  ];
-  for (const [facet, fmt] of ranges) {
+  for (const facet of ["myRating", "imdb", "years", "runtime"] as RangeFacet[]) {
+    const fmt = rangeFormat(facet);
     const r = filters[facet];
     if (r) chips.push({ key: facet, label: `${t(`filters.${facet}`)}: ${fmt(r[0])} – ${fmt(r[1])}`, remove: (f) => ({ ...f, [facet]: null }) });
   }

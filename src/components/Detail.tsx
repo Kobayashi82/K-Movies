@@ -3,10 +3,10 @@ import {
   ArrowRightLeft,
   Bookmark,
   BookmarkCheck,
+  Captions,
   Check,
   Clapperboard,
   Copy,
-  ExternalLink,
   FolderOpen,
   Pause,
   Play,
@@ -19,11 +19,11 @@ import {
   Unlink,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { deleteFile, errorText, transferFile, unmarkWatched } from "../actions";
+import { deleteFile, deleteMovie, errorText, transferFile, unmarkWatched } from "../actions";
 import { api, cachedTmdbImage, fileUrl, parseDbDate, type Item, type ItemDetail } from "../api";
-import { useNowPlaying } from "../hooks";
+import { useNowPlaying, useWheelScrollX } from "../hooks";
 import { useStore } from "../store";
 import {
   displayName,
@@ -38,6 +38,29 @@ import {
 import { ItemHistory } from "./History";
 import { PosterImage } from "./PosterCard";
 import { Stars } from "./Stars";
+
+/** Un icono por cada tipo de subtítulo externo (SRT, ASS…); al pasar el ratón, sus nombres. */
+function SubBadges({ paths }: { paths: string[] }) {
+  const { t } = useTranslation();
+  const byType = new Map<string, string[]>();
+  for (const p of paths) {
+    const name = p.split(/[\\/]/).pop() ?? p;
+    const ext = (name.split(".").pop() ?? "").toUpperCase();
+    byType.set(ext, [...(byType.get(ext) ?? []), name]);
+  }
+  if (!byType.size) return null;
+  return (
+    <span className="sub-badges" aria-label={t("detail.externalSubs")}>
+      {[...byType].map(([ext, names]) => (
+        <span key={ext} className="sub-badge" title={names.join("\n")}>
+          <Captions size={13} />
+          {ext}
+          {names.length > 1 && <small>×{names.length}</small>}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 export function Detail({ item }: { item: Item }) {
   const { t } = useTranslation();
@@ -94,7 +117,9 @@ export function Detail({ item }: { item: Item }) {
 
   const directors = detail?.people.filter((p) => p.role === "director") ?? [];
   const cast = detail?.people.filter((p) => p.role === "cast") ?? [];
-  const backdrop = fileUrl(item.backdrop);
+  const castRef = useRef<HTMLDivElement>(null);
+  useWheelScrollX(castRef, [cast.length > 0]);
+  const backdrop = fileUrl(item.backdrop ?? item.frame);
   const released = parseDbDate(item.releaseDate);
   const watched = item.watchCount > 0;
   const live = useNowPlaying(item.id);
@@ -172,7 +197,12 @@ export function Detail({ item }: { item: Item }) {
 
             <div className="detail-actions">
               {item.fileCount > 0 && live && (
-                <button className="btn primary" disabled>
+                <button
+                  className="btn primary"
+                  disabled={!live.window}
+                  onClick={() => void api.focusPlayer(item.id)}
+                  title={live.window ? t("playback.focus") : undefined}
+                >
                   {live.paused ? <Pause size={18} fill="currentColor" strokeWidth={0} /> : <Play size={18} fill="currentColor" strokeWidth={0} />}
                   {t(live.paused ? "detail.pausedIn" : "detail.playingIn", { player: live.player })}
                 </button>
@@ -213,6 +243,15 @@ export function Detail({ item }: { item: Item }) {
                 {item.tmdbId && (
                   <button className="icon-btn" onClick={() => void refresh()} disabled={refreshing} title={t("detail.refresh")}>
                     <RefreshCw size={18} className={refreshing ? "spin" : undefined} />
+                  </button>
+                )}
+                {item.fileCount > 0 && (
+                  <button
+                    className="icon-btn danger"
+                    onClick={() => void run(async () => (await deleteMovie(item)) && close())}
+                    title={t("detail.deleteMovieHint")}
+                  >
+                    <Trash2 size={18} />
                   </button>
                 )}
               </div>
@@ -287,7 +326,7 @@ export function Detail({ item }: { item: Item }) {
         {cast.length > 0 && (
           <section className="detail-section">
             <h3>{t("detail.cast")}</h3>
-            <div className="cast-row">
+            <div className="cast-row" ref={castRef}>
               {cast.map((p) => (
                 <button key={p.id} className="cast-card" onClick={() => openDialog({ kind: "person", personId: p.id })}>
                   <div className="cast-photo">
@@ -311,10 +350,8 @@ export function Detail({ item }: { item: Item }) {
                     <span className="file-name">{f.path.split(/[\\/]/).pop()}</span>
                     <span className="file-dir">{f.path.replace(/[\\/][^\\/]*$/, "")}</span>
                   </button>
-                  <span className="file-meta">
-                    {formatSize(f.size)}
-                    {f.hasSubs && ` · ${t("detail.subtitles")}`}
-                  </span>
+                  <SubBadges paths={f.subs} />
+                  <span className="file-meta">{formatSize(f.size)}</span>
                   <div className="file-actions">
                     {detail.files.length > 1 && (
                       <button className="icon-btn small" onClick={() => play({ fileId: f.id })} disabled={!!live} title={t("detail.playFile")}>
@@ -358,19 +395,6 @@ export function Detail({ item }: { item: Item }) {
         )}
 
         <ItemHistory item={item} />
-
-        {item.tmdbId && (
-          <div className="detail-footer">
-            <button className="link-btn" onClick={() => void openUrl(`https://www.themoviedb.org/movie/${item.tmdbId}`)}>
-              TMDb <ExternalLink size={12} />
-            </button>
-            {item.imdbId && (
-              <button className="link-btn" onClick={() => void openUrl(`https://www.imdb.com/title/${item.imdbId}/`)}>
-                IMDb <ExternalLink size={12} />
-              </button>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

@@ -26,3 +26,7 @@ dist-ssr
 ESPECIFICACION.md
 DECISIONES.md
 dev.bat
+ARREGLAR.md
+
+# Ejecutable portable que copia `npm run tauri build`
+/bin

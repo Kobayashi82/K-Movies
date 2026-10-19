@@ -1,7 +1,7 @@
 //! Seguimiento de lo que se está viendo: abre el reproductor (el integrado o uno externo), sabe por
 //! dónde vas, guarda el progreso y marca la película como vista al pasar del umbral.
 
-use crate::{AppState, db, library, player, players};
+use crate::{AppState, db, library, player, players, tray};
 use anyhow::{Result, anyhow, bail};
 use rusqlite::OptionalExtension;
 use serde::Serialize;
@@ -35,6 +35,8 @@ pub struct NowPlaying {
     pub paused: bool,
     /// Ya se ha marcado como vista en esta sesión.
     pub watched: bool,
+    /// Ventana del reproductor integrado (para traerla al frente); `None` con reproductores externos.
+    pub window: Option<String>,
 }
 
 #[derive(Default)]
@@ -117,9 +119,17 @@ fn resolve(app: &AppHandle, item_id: i64, file_id: Option<i64>, from_start: bool
 }
 
 /// Abre la película en el reproductor de los ajustes: el integrado (si está libmpv), VLC u otro.
+/// Se pueden ver varias películas a la vez; si esa ya se está viendo en el integrado, se trae su
+/// ventana al frente.
 pub fn play(app: &AppHandle, item_id: i64, file_id: Option<i64>, from_start: bool) -> Result<()> {
-    if app.state::<AppState>().sessions.lock().iter().any(|s| s.item_id == item_id) {
-        bail!("already_playing");
+    let window = app.state::<AppState>().sessions.lock().iter().find(|s| s.item_id == item_id).map(|s| s.window.clone());
+    match window {
+        Some(Some(label)) => {
+            player::focus(app, &label);
+            return Ok(());
+        }
+        Some(None) => bail!("already_playing"),
+        None => {}
     }
     let r = resolve(app, item_id, file_id, from_start)?;
     let internal = match r.player.as_deref() {
@@ -128,7 +138,9 @@ pub fn play(app: &AppHandle, item_id: i64, file_id: Option<i64>, from_start: boo
         Some(_) => false,
     };
     if internal {
-        return player::open(app, r);
+        player::open(app, r)?;
+        tray::playback_started(app);
+        return Ok(());
     }
     let path = r.player.as_ref().map(PathBuf::from).filter(|p| p.is_file());
     let Some(path) = path.or_else(|| players::detect().into_iter().next().map(|p| PathBuf::from(p.path))) else {
@@ -136,9 +148,10 @@ pub fn play(app: &AppHandle, item_id: i64, file_id: Option<i64>, from_start: boo
         return tauri_plugin_opener::open_path(&r.file, None::<&str>).map_err(|e| anyhow!(e.to_string()));
     };
     let launched = players::launch(&path, &r.file, r.start)?;
-    let tracker = Tracker::begin(app, &r, players::name_of(&path), launched.vlc.is_some());
+    let tracker = Tracker::begin(app, &r, players::name_of(&path), launched.vlc.is_some(), None);
     let name = r.file.file_name().unwrap_or_default().to_string_lossy().into_owned();
     tauri::async_runtime::spawn(async move { track_external(tracker, name, launched).await });
+    tray::playback_started(app);
     Ok(())
 }
 
@@ -176,7 +189,7 @@ pub struct Tracker {
 
 impl Tracker {
     /// Apunta la sesión (aparece en la interfaz como "reproduciendo").
-    pub fn begin(app: &AppHandle, r: &Resolved, player: String, tracked: bool) -> Self {
+    pub fn begin(app: &AppHandle, r: &Resolved, player: String, tracked: bool, window: Option<String>) -> Self {
         app.state::<AppState>().sessions.lock().push(NowPlaying {
             item_id: r.item_id,
             title: r.title.clone(),
@@ -186,6 +199,7 @@ impl Tracker {
             duration: None,
             paused: false,
             watched: false,
+            window,
         });
         changed(app);
         Tracker {
@@ -239,9 +253,17 @@ impl Tracker {
             }
             _ => {}
         }
-        app.state::<AppState>().sessions.lock().retain(|s| s.item_id != self.item_id);
+        let state = app.state::<AppState>();
+        let left = {
+            let mut sessions = state.sessions.lock();
+            sessions.retain(|s| s.item_id != self.item_id);
+            sessions.len()
+        };
         changed(app);
         let _ = app.emit("library-changed", ());
+        if left == 0 {
+            tray::playback_ended(app);
+        }
     }
 }
 

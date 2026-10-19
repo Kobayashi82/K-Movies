@@ -16,7 +16,7 @@ tauri-build = { version = "2", features = [] }
 zstd = { version = "0.14.3", features = ["zstdmt"] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
@@ -32,7 +32,7 @@ strsim = "0.11"
 anyhow = "1"
 trash = "5"
 libloading = "0.8"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_UI_WindowsAndMessaging"] }
 csv = "1.4.0"
 zip = { version = "9.0.4", default-features = false, features = ["deflate"] }
 notify = { version = "8.2.0", default-features = false }

@@ -1,7 +1,10 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { api, type Conflict } from "./api";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { BookmarkMinus, BookmarkPlus, Check, EyeOff, FolderOpen, Info, Play, RefreshCw, RotateCcw, SearchCheck, Trash2 } from "lucide-react";
+import { api, type Conflict, type Item } from "./api";
 import i18n from "./i18n";
-import { useStore, type Choice } from "./store";
+import { useStore, type Choice, type MenuEntry } from "./store";
+import { formatClock, heroTransition } from "./util";
 
 const VIDEO_EXT = ["mp4", "mkv", "avi", "m4v", "mov", "wmv", "mpg", "mpeg", "ts", "m2ts", "webm", "flv", "ogm", "divx"];
 
@@ -137,4 +140,95 @@ export async function unmarkWatched(id: number, count: number) {
 export function errorText(code: string | null): string {
   const key = `errors.${code}`;
   return code && i18n.exists(key) ? i18n.t(key) : (code ?? "");
+}
+
+/** Borra la película: todos sus archivos y sus subtítulos externos van a la papelera. */
+export async function deleteMovie(item: Item): Promise<boolean> {
+  const answer = await askChoice({
+    title: i18n.t("detail.deleteMovie"),
+    message: i18n.t("detail.deleteMovieConfirm", { title: item.title, count: item.fileCount }),
+    options: [
+      { value: "cancel", label: i18n.t("common.cancel") },
+      { value: "delete", label: i18n.t("detail.deleteMovie"), kind: "danger" },
+    ],
+  });
+  if (answer !== "delete") return false;
+  await api.deleteItemFiles(item.id);
+  return true;
+}
+
+/** Abre la ficha (con la transición del póster si está a la vista). */
+export function openDetail(id: number) {
+  const card = document.querySelector<HTMLElement>(`[data-poster-id="${id}"]`);
+  heroTransition(card, () => useStore.getState().select(id));
+}
+
+/** Abre la carpeta del archivo más grande de la película. */
+async function showInFolder(id: number) {
+  const file = (await api.getItem(id)).files[0];
+  if (file) await revealItemInDir(file.path);
+}
+
+/** Lanza una acción y, si falla, lo dice en un aviso. */
+const guarded = (id: number, action: () => Promise<unknown>) => () =>
+  action().catch((e) => useStore.getState().pushNotice({ kind: "actionError", title: "", itemId: id, detail: String(e) }));
+
+/** Menú del botón derecho sobre una película (póster, Seguir viendo, historial). */
+export function movieMenu(item: Item): MenuEntry[] {
+  const { playing, openDialog, select } = useStore.getState();
+  const live = playing.find((p) => p.itemId === item.id);
+  const resumable = !live && item.position != null && item.duration != null;
+  const onDisk = item.fileCount > 0;
+  const t = i18n.t.bind(i18n);
+  const entries: (MenuEntry | false)[] = [
+    onDisk && {
+      label: live ? t("menu.goToPlayer") : resumable ? t("detail.resumeAt", { time: formatClock(item.position) }) : t("detail.play"),
+      icon: Play,
+      action: () => (live?.window ? api.focusPlayer(item.id) : play(item.id)),
+    },
+    onDisk && resumable && { label: t("detail.fromStart"), icon: RotateCcw, action: () => play(item.id, { fromStart: true }) },
+    { label: t("menu.open"), icon: Info, action: () => select(item.id) },
+    null,
+    item.watchCount > 0
+      ? { label: t("history.unmark"), icon: EyeOff, action: guarded(item.id, () => unmarkWatched(item.id, item.watchCount)) }
+      : { label: t("detail.markWatched"), icon: Check, action: guarded(item.id, () => api.setWatched(item.id, true)) },
+    item.watchlist
+      ? { label: t("menu.removePending"), icon: BookmarkMinus, action: guarded(item.id, () => api.setWatchlist(item.id, false)) }
+      : { label: t("detail.addPending"), icon: BookmarkPlus, action: guarded(item.id, () => api.setWatchlist(item.id, true)) },
+    null,
+    onDisk && { label: t("detail.showInFolder"), icon: FolderOpen, action: guarded(item.id, () => showInFolder(item.id)) },
+    {
+      label: t("menu.fixMatch"),
+      icon: SearchCheck,
+      action: () => openDialog({ kind: "search", mode: "identify", itemId: item.id, query: item.title, year: item.matched === 0 ? item.year : null }),
+    },
+    item.tmdbId != null && { label: t("detail.refresh"), icon: RefreshCw, action: guarded(item.id, () => api.refreshItem(item.id)) },
+    onDisk && null,
+    onDisk && { label: t("detail.deleteMovie"), icon: Trash2, danger: true, action: guarded(item.id, () => deleteMovie(item)) },
+  ];
+  return entries.filter((e): e is MenuEntry => e !== false);
+}
+
+/** Abre el menú propio de la app donde se ha pulsado el botón derecho. */
+export function openMenu(e: React.MouseEvent, entries: MenuEntry[]) {
+  e.preventDefault();
+  e.stopPropagation();
+  useStore.setState({ menu: { x: e.clientX, y: e.clientY, entries } });
+}
+
+/** Textos del menú del icono de notificación (en el idioma de la interfaz); también lo enseña o lo quita. */
+export function syncTray() {
+  void api.trayUpdate(i18n.t("tray.show"), i18n.t("tray.quit")).catch(console.error);
+}
+
+let rescanTimer = 0;
+
+/** Escanea en cuanto se pueda (si hay un escaneo o una importación en marcha, lo reintenta). Así se
+ *  actualizan las fichas tras cambiar el idioma de la información. */
+export function rescanWhenFree(tries = 60) {
+  window.clearTimeout(rescanTimer);
+  if (!useStore.getState().libraries.length) return;
+  void api.startScan().then((started) => {
+    if (!started && tries > 1) rescanTimer = window.setTimeout(() => rescanWhenFree(tries - 1), 5000);
+  });
 }

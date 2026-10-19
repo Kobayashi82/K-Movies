@@ -317,7 +317,9 @@ button:disabled {
   color: var(--text);
 }
 .search input::placeholder {
-  color: var(--text-3);
+  /* Más claro y con un halo del color del fondo: se lee aunque detrás haya una imagen clara. */
+  color: var(--text-2);
+  text-shadow: 0 0 6px var(--bg), 0 0 2px var(--bg);
 }
 .search-clear {
   display: grid;
@@ -735,25 +737,6 @@ input[type="range"]:active::-webkit-slider-thumb {
   opacity: 1;
 }
 
-.poster-fallback {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: 4px;
-  padding: 14px;
-  background: linear-gradient(160deg, hsl(var(--hue) 45% 32%), hsl(calc(var(--hue) + 40) 50% 14%));
-  color: #fff;
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 15px;
-  line-height: 1.2;
-}
-.poster-fallback small {
-  opacity: 0.7;
-  font-weight: 400;
-}
 
 .rating-badges {
   position: absolute;
@@ -1073,10 +1056,6 @@ input[type="range"]:active::-webkit-slider-thumb {
   height: 100%;
   object-fit: cover;
   display: block;
-}
-.detail-poster .poster-fallback {
-  font-size: 22px;
-  padding: 22px;
 }
 .detail-info {
   flex: 1;
@@ -2777,14 +2756,13 @@ html.player-mode body {
   max-width: 90%;
   text-align: center;
   white-space: nowrap;
-  /* mpv usa la letra sin serifa del sistema (Arial en Windows), con contorno negro. */
+  /* mpv usa la letra sin serifa del sistema (Arial en Windows); el contorno negro, si se pide. */
   font-family: Arial, "Segoe UI", sans-serif;
   line-height: 1.2;
   -webkit-text-stroke: var(--stroke) #000;
   paint-order: stroke fill;
 }
 .sub-preview-text.boxed {
-  -webkit-text-stroke: 0;
   padding: 0 var(--pad);
   background: rgba(0, 0, 0, 0.65);
 }
@@ -2828,4 +2806,352 @@ html.player-mode body {
 }
 .field.disabled {
   opacity: 0.45;
+}
+
+/* ==========================================================================
+   Menú del botón derecho (propio de la app)
+   ========================================================================== */
+
+.context-menu {
+  position: fixed;
+  z-index: 120;
+  min-width: 210px;
+  max-width: 320px;
+  padding: 5px;
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
+  transform-origin: top left;
+}
+.context-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px 7px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13.5px;
+  text-align: left;
+  white-space: nowrap;
+}
+.context-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.context-item svg,
+.context-icon {
+  flex-shrink: 0;
+  width: 15px;
+  color: var(--text-2);
+}
+.context-item:hover:not(:disabled),
+.context-item:focus-visible {
+  background: var(--surface-hover);
+  outline: none;
+}
+.context-item:disabled {
+  opacity: 0.45;
+}
+.context-item.danger,
+.context-item.danger svg {
+  color: var(--danger);
+}
+.context-sep {
+  height: 1px;
+  margin: 5px 8px;
+  background: var(--border);
+}
+
+/* El círculo de reproducir del póster es un botón (el resto del póster abre la ficha). */
+.play-hint {
+  cursor: pointer;
+}
+.card:hover .play-hint:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+  transform: scale(1.08);
+}
+
+/* Subtítulos externos de cada archivo, en la ficha. */
+.sub-badges {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.sub-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: default;
+}
+.sub-badge small {
+  font-weight: 500;
+  color: var(--text-3);
+}
+
+.filter-hint {
+  margin: 6px 0 0 26px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Ajustes: secciones a la izquierda */
+.modal.settings {
+  width: min(920px, calc(100vw - 48px));
+  height: calc(100vh - 80px);
+}
+.settings-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.settings-nav {
+  flex: 0 0 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px 20px 18px;
+  overflow-y: auto;
+}
+.settings-nav button {
+  padding: 8px 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: 13.5px;
+  text-align: left;
+}
+.settings-nav button:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+.settings-nav button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.settings-layout .modal-body {
+  flex: 1;
+  min-width: 0;
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+}
+.settings-check.first {
+  margin-top: 0;
+}
+@media (max-width: 760px) {
+  .settings-nav {
+    display: none;
+  }
+  .settings-layout .modal-body {
+    border-left: none;
+  }
+}
+
+/* Reproductor: proporción y recorte, y aviso del volumen */
+.pl-btn.changed {
+  color: var(--accent);
+}
+.pl-view-group + .pl-view-group {
+  margin-top: 12px;
+}
+.pl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 4px;
+}
+.pl-chip {
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--pl-text);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.pl-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.pl-chip.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+.pl-note.keys {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+.pl-osd-volume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 200px;
+}
+.pl-osd-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+.pl-osd-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.pl-osd-value {
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Clave de TMDb: comprobándose / válida (se guarda sola). */
+.key-status {
+  flex-shrink: 0;
+  margin: 0 6px;
+  color: var(--text-3);
+}
+.key-status.ok {
+  color: var(--accent);
+}
+
+/* Un botón justo debajo de una casilla (Letterboxd, carpetas) no va pegado a ella. */
+.settings-check + .btn {
+  margin-top: 14px;
+}
+
+/* Póster de las películas sin imagen de TMDb: un fotograma del vídeo con el título encima, o un
+   cartel oscuro con un tono propio de cada película, una claqueta y el título. */
+.poster-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 70% at 50% 0%, hsl(var(--hue) 35% 30% / 0.9), transparent 70%),
+    linear-gradient(180deg, hsl(var(--hue) 25% 16%), hsl(var(--hue) 20% 7%));
+  color: #fff;
+  font-family: var(--font-display);
+}
+.poster-fallback-icon {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  width: 34%;
+  height: auto;
+  transform: translate(-50%, -50%);
+  color: hsl(var(--hue) 45% 75% / 0.35);
+}
+.poster-fallback-text {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 14px 16px;
+  font-weight: 650;
+  font-size: 15px;
+  line-height: 1.2;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.poster-fallback-text small {
+  opacity: 0.65;
+  font-weight: 400;
+  font-size: 0.85em;
+}
+.poster-fallback.has-frame img {
+  position: absolute;
+  inset: 0;
+}
+.poster-fallback.has-frame .poster-fallback-text {
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.82) 45%);
+  padding-top: 40px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.detail-poster .poster-fallback-text {
+  font-size: 22px;
+  padding: 22px;
+}
+/* En las miniaturas del historial no cabe el texto. */
+.history-thumb .poster-fallback-text {
+  display: none;
+}
+.history-thumb .poster-fallback-icon {
+  top: 50%;
+  width: 60%;
+}
+/* Sin el título dentro (ya se ve debajo), la claqueta va en el centro. */
+.poster-fallback:not(:has(.poster-fallback-text)) .poster-fallback-icon {
+  top: 50%;
+}
+/* Rutas de carpetas que se abren con un clic (Ajustes). */
+.path-link {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
+  text-align: left;
+}
+
+/* Tooltips propios (ver `tooltips.ts`). */
+.tooltip {
+  position: fixed;
+  z-index: 200;
+  left: 0;
+  top: 0;
+  max-width: 360px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font: 12.5px/1.4 var(--font);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s;
+}
+.tooltip.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Página de una persona: filtros y las películas que no tienes (de su filmografía en TMDb). */
+.person-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 26px 14px;
+  color: var(--text-3);
+}
+.person-movie.not-owned .person-poster {
+  opacity: 0.6;
+  transition: opacity 0.2s, transform 0.2s var(--ease), box-shadow 0.2s;
+}
+.person-movie.not-owned:hover .person-poster {
+  opacity: 1;
+}
+.person-movie.not-owned strong {
+  color: var(--text-2);
+}
+.person-empty {
+  padding: 20px 0;
 }

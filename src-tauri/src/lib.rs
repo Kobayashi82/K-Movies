@@ -1,4 +1,5 @@
 mod db;
+mod frames;
 mod images;
 mod imdb;
 mod letterboxd;
@@ -11,6 +12,7 @@ mod players;
 mod scanner;
 mod tmdb;
 mod transfers;
+mod tray;
 mod watch;
 
 use regex::Regex;
@@ -20,7 +22,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex, MutexGuard};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
 pub struct AppState {
     db: Mutex<Connection>,
@@ -30,7 +32,8 @@ pub struct AppState {
     scanning: AtomicBool,
     transfers: transfers::Transfers,
     sessions: playback::Sessions,
-    player: player::Slot,
+    player: player::Players,
+    desktop: tray::Desktop,
     watch: watch::Watch,
 }
 
@@ -140,8 +143,16 @@ fn list_items(state: State<AppState>) -> CmdResult<Vec<db::ItemSummary>> {
 }
 
 #[tauri::command]
-fn get_item(state: State<AppState>, id: i64) -> CmdResult<db::ItemDetail> {
-    db::item_detail(&state.db(), id).map_err(err)
+async fn get_item(app: AppHandle, id: i64) -> CmdResult<db::ItemDetail> {
+    let mut detail = db::item_detail(&app.state::<AppState>().db(), id).map_err(err)?;
+    // Los subtítulos externos se miran en el disco al abrir la ficha (sin bloquear la base de datos).
+    for file in &mut detail.files {
+        file.subs = transfers::subtitles(Path::new(&file.path))
+            .into_iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+    }
+    Ok(detail)
 }
 
 #[tauri::command]
@@ -218,6 +229,24 @@ fn delete_history(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<
 #[tauri::command]
 fn get_person(state: State<AppState>, id: i64) -> CmdResult<db::PersonPage> {
     db::person(&state.db(), id).map_err(err)
+}
+
+/// Todas las películas de una persona en TMDb (no solo las tuyas), en el idioma de la información.
+#[tauri::command]
+async fn person_credits(app: AppHandle, tmdb_id: i64) -> CmdResult<Vec<tmdb::PersonCredit>> {
+    let (client, language) = library::client(&app).map_err(err)?;
+    client.person_credits(tmdb_id, &language).await.map_err(err)
+}
+
+/// Abre en el Explorador la carpeta de datos (`data`) o la de idiomas (`locales`), creándola si hace falta.
+#[tauri::command]
+fn open_folder(state: State<AppState>, which: String) -> CmdResult<()> {
+    let dir = match which.as_str() {
+        "locales" => state.data_dir.join("locales"),
+        _ => state.data_dir.clone(),
+    };
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    tauri_plugin_opener::open_path(&dir, None::<&str>).map_err(err)
 }
 
 /// Tu nota de un visionado (0,5–5, en medias estrellas); `None` la quita.
@@ -332,53 +361,82 @@ fn internal_player_available() -> bool {
 }
 
 #[tauri::command]
-fn player_state(app: AppHandle) -> player::PlayerState {
-    player::state(&app)
+fn player_state(app: AppHandle, window: WebviewWindow) -> player::PlayerState {
+    player::state(&app, window.label())
 }
 
 #[tauri::command]
-fn player_command(app: AppHandle, args: Vec<String>) -> CmdResult<()> {
-    player::command(&app, &args).map_err(err)
+fn player_command(app: AppHandle, window: WebviewWindow, args: Vec<String>) -> CmdResult<()> {
+    player::command(&app, window.label(), &args).map_err(err)
 }
 
 #[tauri::command]
-fn player_set(app: AppHandle, name: String, value: String) -> CmdResult<()> {
-    player::set(&app, &name, &value).map_err(err)
+fn player_set(app: AppHandle, window: WebviewWindow, name: String, value: String) -> CmdResult<()> {
+    player::set(&app, window.label(), &name, &value).map_err(err)
 }
 
 #[tauri::command]
-fn player_sub_background(app: AppHandle, on: bool) -> CmdResult<()> {
-    player::set_sub_background(&app, on).map_err(err)
+fn player_sub_background(app: AppHandle, window: WebviewWindow, on: bool) -> CmdResult<()> {
+    player::set_sub_background(&app, window.label(), on).map_err(err)
 }
 
 #[tauri::command]
-fn player_sub_margin(app: AppHandle, percent: f64) -> CmdResult<()> {
-    player::add_sub_margin(&app, percent).map_err(err)
+fn player_sub_margin(app: AppHandle, window: WebviewWindow, percent: f64) -> CmdResult<()> {
+    player::add_sub_margin(&app, window.label(), percent).map_err(err)
 }
 
 #[tauri::command]
-async fn player_fullscreen(app: AppHandle, on: bool) -> CmdResult<()> {
-    player::set_fullscreen(&app, on).map_err(err)
+async fn player_fullscreen(app: AppHandle, window: WebviewWindow, on: bool) -> CmdResult<()> {
+    player::set_fullscreen(&app, window.label(), on).map_err(err)
 }
 
 #[tauri::command]
-async fn player_ontop(app: AppHandle, on: bool) -> CmdResult<()> {
-    player::set_ontop(&app, on).map_err(err)
+async fn player_ontop(app: AppHandle, window: WebviewWindow, on: bool) -> CmdResult<()> {
+    player::set_ontop(&app, window.label(), on).map_err(err)
 }
 
 #[tauri::command]
-fn player_aspect(app: AppHandle, ratio: String) -> CmdResult<()> {
-    player::set_aspect(&app, &ratio).map_err(err)
+fn player_aspect(app: AppHandle, window: WebviewWindow, ratio: String) -> CmdResult<()> {
+    player::set_aspect(&app, window.label(), &ratio).map_err(err)
 }
 
 #[tauri::command]
-fn player_crop(app: AppHandle, ratio: f64) -> CmdResult<()> {
-    player::set_crop(&app, ratio).map_err(err)
+fn player_crop(app: AppHandle, window: WebviewWindow, ratio: String) -> CmdResult<()> {
+    player::set_crop(&app, window.label(), &ratio).map_err(err)
 }
 
 #[tauri::command]
-fn player_close(app: AppHandle) {
-    player::close(&app)
+fn player_close(app: AppHandle, window: WebviewWindow) {
+    player::close(&app, window.label())
+}
+
+/// Trae al frente el reproductor integrado de esa película. `false` si no se está viendo en él.
+#[tauri::command]
+fn player_focus(app: AppHandle, item_id: i64) -> bool {
+    player::focus_item(&app, item_id)
+}
+
+/// La interfaz ya ha pintado: se enseña la ventana principal (o se queda en el icono si Windows
+/// la ha abierto al iniciar sesión y está "Iniciar minimizado").
+#[tauri::command]
+fn main_ready(app: AppHandle) {
+    tray::main_ready(&app)
+}
+
+/// Textos del menú del icono de notificación, y enseñarlo o quitarlo según los ajustes.
+#[tauri::command]
+fn tray_update(app: AppHandle, show: String, quit: String) -> CmdResult<()> {
+    tray::update(&app, show, quit).map_err(err)
+}
+
+#[tauri::command]
+fn autostart_enabled() -> bool {
+    tray::autostart_enabled()
+}
+
+#[tauri::command]
+fn set_autostart(on: bool) -> CmdResult<()> {
+    tray::set_autostart(on).map_err(err)
 }
 
 fn file_path(state: &AppState, file_id: i64) -> CmdResult<PathBuf> {
@@ -449,9 +507,22 @@ fn dismiss_transfers(app: AppHandle, id: Option<u64>) {
     transfers::dismiss(&app, id)
 }
 
-/// Manda el archivo a la papelera y lo quita de la biblioteca.
+/// Mientras se ve no se puede borrar: el reproductor tiene el archivo abierto.
+fn ensure_not_playing(app: &AppHandle, item_id: i64) -> CmdResult<()> {
+    if playback::list(app).iter().any(|s| s.item_id == item_id) {
+        return Err("is_playing".into());
+    }
+    Ok(())
+}
+
+/// Manda el archivo (y sus subtítulos) a la papelera y lo quita de la biblioteca.
 #[tauri::command]
 fn delete_file(app: AppHandle, state: State<AppState>, file_id: i64) -> CmdResult<()> {
+    let item: Option<i64> =
+        state.db().query_row("SELECT item_id FROM files WHERE id = ?1", [file_id], |r| r.get(0)).map_err(err)?;
+    if let Some(item) = item {
+        ensure_not_playing(&app, item)?;
+    }
     let path = file_path(&state, file_id)?;
     if path.exists() {
         transfers::delete_to_trash(&path).map_err(err)?;
@@ -459,6 +530,30 @@ fn delete_file(app: AppHandle, state: State<AppState>, file_id: i64) -> CmdResul
     let conn = state.db();
     conn.execute("DELETE FROM files WHERE id = ?1", [file_id]).map_err(err)?;
     db::prune_orphans(&conn).map_err(err)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+/// Manda a la papelera todos los archivos de la película con sus subtítulos externos. La ficha
+/// sigue si está en Vistas o en Pendientes.
+#[tauri::command]
+fn delete_item_files(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<()> {
+    ensure_not_playing(&app, id)?;
+    let files: Vec<(i64, String)> = {
+        let conn = state.db();
+        let mut stmt = conn.prepare("SELECT id, path FROM files WHERE item_id = ?1").map_err(err)?;
+        stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .and_then(|rows| rows.collect::<rusqlite::Result<_>>())
+            .map_err(err)?
+    };
+    for (file_id, path) in files {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            transfers::delete_to_trash(&path).map_err(err)?;
+        }
+        state.db().execute("DELETE FROM files WHERE id = ?1", [file_id]).map_err(err)?;
+    }
+    db::prune_orphans(&state.db()).map_err(err)?;
     let _ = app.emit("library-changed", ());
     Ok(())
 }
@@ -538,17 +633,21 @@ pub fn run() {
                 scanning: AtomicBool::new(false),
                 transfers: transfers::Transfers::default(),
                 sessions: playback::Sessions::default(),
-                player: player::Slot::default(),
+                player: player::Players::default(),
+                desktop: tray::Desktop::default(),
                 watch: watch::Watch::default(),
             });
             // Archivos nuevos o borrados en las carpetas de la biblioteca: se reescanea solo.
             watch::start(app.handle());
             // libmpv va dentro del ejecutable: se descomprime ya, en segundo plano, si hace falta.
             mpv::prepare(lib_dir);
-            // Cerrar K-Movies cierra también la película (y guarda por dónde ibas).
+            // Cerrar o minimizar al icono, recordar el tamaño y la posición, y cerrar las películas
+            // al salir (guardan por dónde ibas).
+            tray::restore_geometry(app.handle());
+            tray::refresh_autostart();
             if let Some(main) = app.get_webview_window("main") {
-                let handle = app.handle().clone();
-                main.on_window_event(move |e| player::on_main_event(&handle, e));
+                let (handle, window) = (app.handle().clone(), main.clone());
+                main.on_window_event(move |e| tray::on_main_event(&handle, &window, e));
             }
             Ok(())
         })
@@ -571,6 +670,8 @@ pub fn run() {
             delete_history,
             set_history_rating,
             get_person,
+            person_credits,
+            open_folder,
             letterboxd_export,
             letterboxd_import,
             clear_progress,
@@ -586,6 +687,12 @@ pub fn run() {
             player_aspect,
             player_crop,
             player_close,
+            player_focus,
+            main_ready,
+            tray_update,
+            autostart_enabled,
+            set_autostart,
+            delete_item_files,
             validate_tmdb_key,
             search_tmdb,
             identify_item,

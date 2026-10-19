@@ -2,7 +2,7 @@ import { AlertTriangle, ArrowRightLeft, Bookmark, Check, CheckCheck, Copy, Downl
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { errorText } from "../actions";
+import { errorText, movieMenu, openMenu } from "../actions";
 import { api, type NowPlaying, type ScanProgress, type TransferInfo } from "../api";
 import { useStore } from "../store";
 import { formatClock, formatSize } from "../util";
@@ -19,7 +19,7 @@ function ScanToast({ scan }: { scan: ScanProgress }) {
       <div className="toast-text">
         <strong>
           {t(`scan.${scan.phase}`)}
-          {(scan.phase === "matching" || scan.phase === "refreshing" || scan.phase === "letterboxd") &&
+          {(scan.phase === "matching" || scan.phase === "refreshing" || scan.phase === "frames" || scan.phase === "letterboxd") &&
             scan.total > 0 &&
             ` ${scan.current}/${scan.total}`}
         </strong>
@@ -86,8 +86,20 @@ function PlayingToast({ p }: { p: NowPlaying }) {
     : p.watched
       ? t("playback.watched")
       : t(p.paused ? "playback.paused" : "playback.playing");
+  // Con el reproductor integrado, el clic trae su ventana al frente; con otros, abre la ficha.
+  const onClick = () => (p.window ? void api.focusPlayer(p.itemId) : useStore.getState().select(p.itemId));
   return (
-    <motion.div layout className="toast clickable" {...enter} onClick={() => useStore.getState().select(p.itemId)}>
+    <motion.div
+      layout
+      className="toast clickable"
+      {...enter}
+      onClick={onClick}
+      title={p.window ? t("playback.focus") : undefined}
+      onContextMenu={(e) => {
+        const item = useStore.getState().items.find((i) => i.id === p.itemId);
+        if (item) openMenu(e, movieMenu(item));
+      }}
+    >
       <Icon size={16} fill={p.paused || p.watched ? "none" : "currentColor"} strokeWidth={p.paused || p.watched ? 2 : 0} />
       <div className="toast-text">
         <strong>{p.title}</strong>
@@ -122,7 +134,7 @@ function RateWatched({ historyId }: { historyId: number }) {
 }
 
 const NOTICE_ICON = { pendingAvailable: Bookmark, alreadyWatched: Eye, markedWatched: CheckCheck };
-const isError = (kind: string) => kind === "transferError" || kind === "playError";
+const isError = (kind: string) => kind === "transferError" || kind === "playError" || kind === "actionError";
 
 /** Pila de avisos de la esquina: escaneo, reproducción, transferencias, errores y notificaciones. */
 export function Toasts() {
@@ -151,6 +163,8 @@ export function Toasts() {
                       ? t("transfer.failed")
                       : n.kind === "playError"
                         ? t("playback.failed")
+                        : n.kind === "actionError"
+                          ? t("common.error")
                         : t(`notice.${n.kind}`, { title: n.title })}
                   </strong>
                   {error && <small className="toast-error">{errorText(n.detail)}</small>}

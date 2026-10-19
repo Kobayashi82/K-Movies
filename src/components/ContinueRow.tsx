@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, Play, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { play } from "../actions";
+import { movieMenu, openMenu, play } from "../actions";
 import { api, fileUrl, type Item } from "../api";
 import { useNowPlaying } from "../hooks";
 import { useStore } from "../store";
@@ -14,9 +14,9 @@ function ContinueCard({ item }: { item: Item }) {
   const position = live?.position ?? item.position;
   const duration = live?.duration ?? item.duration;
   const progress = position && duration ? Math.min(1, position / duration) : 0;
-  const image = fileUrl(item.backdrop) ?? fileUrl(item.poster);
+  const image = fileUrl(item.backdrop ?? item.frame) ?? fileUrl(item.poster);
   return (
-    <div className="continue-card">
+    <div className="continue-card" onContextMenu={(e) => openMenu(e, movieMenu(item))}>
       <button className="continue-open" onClick={() => useStore.getState().select(item.id)}>
         {image ? (
           <img src={image} alt="" loading="lazy" decoding="async" className={loaded ? "loaded" : undefined} onLoad={() => setLoaded(true)} />

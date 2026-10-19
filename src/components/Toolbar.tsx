@@ -3,12 +3,11 @@ import { motion } from "motion/react";
 import { forwardRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
-import { pickAndImport } from "../actions";
+import { openDetail, pickAndImport, play } from "../actions";
 import { api } from "../api";
 import { activeFilterCount, defaultDesc, SORT_KEYS, type SortKey, type View } from "../filters";
 import { useViewCounts, useVisibleItems } from "../hooks";
 import { GRID_MAX, GRID_MIN, useStore } from "../store";
-import { heroTransition } from "../util";
 
 const VIEWS: View[] = ["library", "pending", "watched"];
 
@@ -31,11 +30,12 @@ export const Toolbar = forwardRef<HTMLInputElement>(function Toolbar(_, searchRe
   const counts = useViewCounts();
   const visible = useVisibleItems();
 
+  // Al azar entre lo que se ve: si está en disco se reproduce directamente; si no, se abre su ficha.
   const random = () => {
     if (!visible.length) return;
     const item = visible[Math.floor(Math.random() * visible.length)];
-    const card = document.querySelector<HTMLElement>(`[data-poster-id="${item.id}"]`);
-    heroTransition(card, () => actions.select(item.id));
+    if (item.fileCount > 0) void play(item.id);
+    else openDetail(item.id);
   };
 
   return (

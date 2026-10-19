@@ -55,6 +55,20 @@ pub struct Details {
     pub cast: Vec<PersonRef>,
 }
 
+/// Una película de la filmografía de una persona (de TMDb, la tengas o no).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonCredit {
+    pub tmdb_id: i64,
+    pub title: String,
+    pub year: Option<i32>,
+    pub poster_path: Option<String>,
+    /// `director` | `cast`
+    pub role: &'static str,
+    pub character: Option<String>,
+    pub popularity: f64,
+}
+
 pub struct PersonRef {
     pub tmdb_id: i64,
     pub name: String,
@@ -135,6 +149,12 @@ impl Tmdb {
         Ok(res["movie_results"].as_array().and_then(|a| a.first()).and_then(|m| m["id"].as_i64()))
     }
 
+    /// Todas las películas de una persona: las que dirigió y en las que actúa.
+    pub async fn person_credits(&self, person_id: i64, language: &str) -> Result<Vec<PersonCredit>> {
+        let v = self.get(&format!("/person/{person_id}/movie_credits"), &[("language", language)]).await?;
+        Ok(person_credits(&v))
+    }
+
     /// Una película concreta como candidato (para cuando se pega un enlace o un id).
     pub async fn candidate_by_id(&self, id: i64, language: &str) -> Result<Candidate> {
         let v = self.get(&format!("/movie/{id}"), &[("language", language)]).await?;
@@ -150,8 +170,9 @@ impl Tmdb {
                 &format!("/movie/{id}"),
                 &[
                     ("language", language),
-                    ("append_to_response", "credits,videos,release_dates"),
+                    ("append_to_response", "credits,videos,release_dates,images"),
                     ("include_video_language", &videos_lang),
+                    ("include_image_language", lang),
                 ],
             )
             .await?;
@@ -207,12 +228,48 @@ impl Tmdb {
             rating: v["vote_average"].as_f64().filter(|r| *r > 0.0),
             votes: v["vote_count"].as_i64(),
             trailer_key,
-            poster_path: str_of(&v, "poster_path"),
+            // El póster en el idioma de la información si lo hay (con el título traducido).
+            poster_path: pick_poster(&v["images"]["posters"], lang).or_else(|| str_of(&v, "poster_path")),
             backdrop_path: str_of(&v, "backdrop_path"),
             directors: crew.iter().filter(|p| p["job"] == "Director").map(|p| person(p, false)).collect(),
             cast: cast.iter().take(20).map(|p| person(p, true)).collect(),
         })
     }
+}
+
+/// Las películas de `/person/{id}/movie_credits`: las que dirigió y en las que actúa (con sus
+/// personajes juntos si hace varios), sin las de adultos.
+fn person_credits(v: &Value) -> Vec<PersonCredit> {
+    let mut out: Vec<PersonCredit> = Vec::new();
+    let list = |key: &str| v[key].as_array().cloned().unwrap_or_default();
+    let credit = |m: &Value, role: &'static str, character: Option<String>| PersonCredit {
+        tmdb_id: m["id"].as_i64().unwrap_or_default(),
+        title: str_of(m, "title").or_else(|| str_of(m, "original_title")).unwrap_or_default(),
+        year: year_of(m["release_date"].as_str()),
+        poster_path: str_of(m, "poster_path"),
+        role,
+        character,
+        popularity: m["popularity"].as_f64().unwrap_or_default(),
+    };
+    for m in list("crew").iter().filter(|m| m["job"] == "Director" && m["adult"] != true) {
+        if !out.iter().any(|c| c.role == "director" && c.tmdb_id == m["id"].as_i64().unwrap_or_default()) {
+            out.push(credit(m, "director", None));
+        }
+    }
+    for m in list("cast").iter().filter(|m| m["adult"] != true) {
+        let id = m["id"].as_i64().unwrap_or_default();
+        let character = str_of(m, "character");
+        // Varios personajes en la misma película: van juntos.
+        match out.iter_mut().find(|c| c.role == "cast" && c.tmdb_id == id) {
+            Some(c) => {
+                if let Some(ch) = character {
+                    c.character = Some(c.character.take().map_or(ch.clone(), |prev| format!("{prev} / {ch}")));
+                }
+            }
+            None => out.push(credit(m, "cast", character)),
+        }
+    }
+    out
 }
 
 fn candidate(m: &Value) -> Candidate {
@@ -251,6 +308,20 @@ fn pick_trailer(videos: &Value, lang: &str) -> Option<String> {
             score
         })
         .and_then(|v| str_of(v, "key"))
+}
+
+/// El póster mejor valorado en ese idioma (`images.posters`, pedidos ya solo en ese idioma).
+fn pick_poster(posters: &Value, lang: &str) -> Option<String> {
+    let score = |p: &Value| (p["vote_average"].as_f64().unwrap_or(0.0), p["vote_count"].as_i64().unwrap_or(0));
+    posters
+        .as_array()?
+        .iter()
+        .filter(|p| p["iso_639_1"] == lang)
+        .max_by(|a, b| {
+            let (sa, sb) = (score(a), score(b));
+            sa.0.total_cmp(&sb.0).then(sa.1.cmp(&sb.1))
+        })
+        .and_then(|p| str_of(p, "file_path"))
 }
 
 /// Clasificación por edades del país pedido; si no hay, la de EE. UU.
@@ -306,6 +377,32 @@ mod tests {
             poster_path: None,
             overview: String::new(),
         }
+    }
+
+    #[test]
+    fn person_credits_join_roles_and_characters() {
+        let v = serde_json::json!({
+            "cast": [
+                { "id": 1, "title": "Uno", "release_date": "2001-05-01", "character": "A" },
+                { "id": 1, "title": "Uno", "release_date": "2001-05-01", "character": "B" },
+                { "id": 2, "title": "", "original_title": "Dos", "release_date": "" },
+                { "id": 3, "title": "X", "adult": true }
+            ],
+            "crew": [
+                { "id": 1, "title": "Uno", "job": "Director" },
+                { "id": 4, "title": "Cuatro", "job": "Writer" }
+            ]
+        });
+        let c = person_credits(&v);
+        let summary: Vec<_> = c.iter().map(|c| (c.role, c.tmdb_id, c.title.as_str(), c.year, c.character.as_deref())).collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("director", 1, "Uno", None, None),
+                ("cast", 1, "Uno", Some(2001), Some("A / B")),
+                ("cast", 2, "Dos", None, None),
+            ]
+        );
     }
 
     #[test]

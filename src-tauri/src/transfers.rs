@@ -329,6 +329,16 @@ fn companions(video: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Solo los subtítulos externos del vídeo (sin el `.nfo`), ordenados por nombre.
+pub fn subtitles(video: &Path) -> Vec<PathBuf> {
+    let mut subs: Vec<PathBuf> = companions(video)
+        .into_iter()
+        .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("nfo")))
+        .collect();
+    subs.sort();
+    subs
+}
+
 fn run(kind: Kind, src: &Path, dest: &Path, delete_source: bool, cancel: &AtomicBool, progress: &AtomicU64) -> Result<()> {
     if dest.exists() {
         bail!("exists");

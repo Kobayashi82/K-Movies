@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 export interface Item {
   id: number;
@@ -20,6 +21,8 @@ export interface Item {
   tmdbRating: number | null;
   poster: string | null;
   backdrop: string | null;
+  /** Fotograma del vídeo, para las que no tienen póster o fondo de TMDb. */
+  frame: string | null;
   matched: number;
   watchlist: boolean;
   addedAt: string;
@@ -61,6 +64,8 @@ export interface NowPlaying {
   paused: boolean;
   /** Ya se ha marcado como vista en esta sesión. */
   watched: boolean;
+  /** Ventana del reproductor integrado; `null` con reproductores externos. */
+  window: string | null;
 }
 
 export interface Person {
@@ -81,13 +86,25 @@ export interface PersonPage {
   credits: { itemId: number; role: "director" | "cast"; character: string | null }[];
 }
 
+/** Una película de la filmografía de una persona en TMDb (la tengas o no). */
+export interface PersonCredit {
+  tmdbId: number;
+  title: string;
+  year: number | null;
+  posterPath: string | null;
+  role: "director" | "cast";
+  character: string | null;
+  popularity: number;
+}
+
 export interface ItemDetail {
   overview: string | null;
   tagline: string | null;
   originalLanguage: string | null;
   tmdbVotes: number | null;
   trailerKey: string | null;
-  files: { id: number; path: string; size: number; hasSubs: boolean; addedAt: string }[];
+  /** `subs`: subtítulos externos junto al vídeo (rutas). */
+  files: { id: number; path: string; size: number; hasSubs: boolean; addedAt: string; subs: string[] }[];
   people: Person[];
 }
 
@@ -106,7 +123,7 @@ export interface Player {
 }
 
 export interface ScanProgress {
-  phase: "scanning" | "matching" | "refreshing" | "ratings" | "letterboxd" | "done" | "error";
+  phase: "scanning" | "matching" | "refreshing" | "frames" | "ratings" | "letterboxd" | "done" | "error";
   current: number;
   total: number;
   message: string | null;
@@ -142,7 +159,8 @@ export interface Notice {
     | "transferError"
     | "markedWatched"
     | "askFinished"
-    | "playError";
+    | "playError"
+    | "actionError";
   title: string;
   itemId: number | null;
   detail: string | null;
@@ -185,6 +203,9 @@ export interface PlayerState {
   ontop: boolean;
   /** Alto de la ventana y bandas negras de arriba y abajo, en píxeles reales. */
   frame: { h: number; mt: number; mb: number };
+  /** Proporción forzada (`16:9`) y recorte (`2.39:1`) de esta sesión; vacío = por defecto. */
+  aspect: string;
+  crop: string;
 }
 
 /** Qué hacer si el archivo ya existe en el destino. */
@@ -246,10 +267,20 @@ export const api = {
     ontop: (on: boolean) => invoke<void>("player_ontop", { on }),
     /** Proporción forzada (`16:9`; vacío = la del vídeo). */
     aspect: (ratio: string) => invoke<void>("player_aspect", { ratio }),
-    /** Recorta la imagen a esa proporción (ancho / alto; 0 = sin recorte). */
-    crop: (ratio: number) => invoke<void>("player_crop", { ratio }),
+    /** Recorta la imagen a esa proporción (`2.39:1`; vacío = sin recorte). */
+    crop: (ratio: string) => invoke<void>("player_crop", { ratio }),
     close: () => invoke<void>("player_close"),
   },
+  /** Trae al frente el reproductor integrado de esa película (`false` si no se está viendo en él). */
+  focusPlayer: (itemId: number) => invoke<boolean>("player_focus", { itemId }),
+  /** La interfaz ya ha pintado: se enseña la ventana (o se queda en el icono al iniciar minimizado). */
+  mainReady: () => invoke<void>("main_ready"),
+  /** Textos del menú del icono de notificación; también lo enseña o lo quita según los ajustes. */
+  trayUpdate: (show: string, quit: string) => invoke<void>("tray_update", { show, quit }),
+  autostartEnabled: () => invoke<boolean>("autostart_enabled"),
+  setAutostart: (on: boolean) => invoke<void>("set_autostart", { on }),
+  /** Manda a la papelera todos los archivos de la película con sus subtítulos externos. */
+  deleteItemFiles: (id: number) => invoke<void>("delete_item_files", { id }),
   getPerson: (id: number) => invoke<PersonPage>("get_person", { id }),
   listHistory: (itemId?: number) => invoke<HistoryEntry[]>("list_history", { itemId }),
   addHistory: (id: number, date?: string) => invoke<void>("add_history", { id, date }),
@@ -273,6 +304,10 @@ export const api = {
   cancelTransfer: (id: number) => invoke<void>("cancel_transfer", { id }),
   dismissTransfers: (id: number | null) => invoke<void>("dismiss_transfers", { id }),
   deleteFile: (fileId: number) => invoke<void>("delete_file", { fileId }),
+  /** Abre en el Explorador la carpeta de datos o la de idiomas (la crea si no existe). */
+  openFolder: (which: "data" | "locales") => invoke<void>("open_folder", { which }),
+  /** Todas las películas de una persona en TMDb (no solo las tuyas). */
+  personCredits: (tmdbId: number) => invoke<PersonCredit[]>("person_credits", { tmdbId }),
   userLocales: () => invoke<Record<string, Record<string, unknown>>>("user_locales"),
 };
 
@@ -287,9 +322,9 @@ export const onNotice = (cb: (n: Notice) => void): Promise<UnlistenFn> => listen
 export const onPlayback = (cb: (p: NowPlaying[]) => void): Promise<UnlistenFn> =>
   listen<NowPlaying[]>("playback", (e) => cb(e.payload));
 
-
+/** Solo el estado de esta ventana del reproductor (puede haber varias películas a la vez). */
 export const onPlayerState = (cb: (p: PlayerState) => void): Promise<UnlistenFn> =>
-  listen<PlayerState>("player-state", (e) => cb(e.payload));
+  getCurrentWebviewWindow().listen<PlayerState>("player-state", (e) => cb(e.payload));
 
 export const onLibraryChanged = (cb: () => void): Promise<UnlistenFn> => listen("library-changed", () => cb());
 

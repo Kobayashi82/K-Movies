@@ -74,3 +74,23 @@ export function useDebounced<T>(value: T, delay: number): T {
   }, [value, delay]);
   return v;
 }
+
+/**
+ * La rueda del ratón desplaza en horizontal una fila que no cabe (el reparto de la ficha). Al llegar
+ * a un extremo, la rueda vuelve a mover la página. `deps`: cuándo puede aparecer o cambiar la fila.
+ */
+export function useWheelScrollX(ref: RefObject<HTMLElement | null>, deps: unknown[]) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.deltaY || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      const max = el.scrollWidth - el.clientWidth;
+      if (max <= 0 || (e.deltaY < 0 && el.scrollLeft <= 0) || (e.deltaY > 0 && el.scrollLeft >= max - 1)) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY * 1.5;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, deps);
+}

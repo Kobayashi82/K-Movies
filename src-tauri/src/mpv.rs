@@ -38,6 +38,7 @@ const EVENT_SHUTDOWN: c_int = 1;
 const EVENT_END_FILE: c_int = 7;
 const EVENT_FILE_LOADED: c_int = 8;
 const EVENT_VIDEO_RECONFIG: c_int = 17;
+const EVENT_PLAYBACK_RESTART: c_int = 21;
 const EVENT_PROPERTY_CHANGE: c_int = 22;
 
 struct Api {
@@ -176,6 +177,8 @@ pub enum Event {
     Shutdown,
     FileLoaded,
     VideoReconfig,
+    /// Empieza a reproducirse (al cargar el archivo o tras un salto): ya hay imagen.
+    PlaybackRestart,
     /// `reason`: 0 fin del archivo, 2 parada, 3 salir, 4 error.
     EndFile { reason: i32, error: i32 },
     Property { name: String, value: Value },
@@ -284,6 +287,7 @@ impl Mpv {
                 EVENT_SHUTDOWN => Event::Shutdown,
                 EVENT_FILE_LOADED => Event::FileLoaded,
                 EVENT_VIDEO_RECONFIG => Event::VideoReconfig,
+                EVENT_PLAYBACK_RESTART => Event::PlaybackRestart,
                 EVENT_END_FILE => {
                     let end = &*(ev.data as *const RawEndFile);
                     Event::EndFile { reason: end.reason, error: end.error }
@@ -340,6 +344,7 @@ mod tests {
             ("sub-bold", "yes"),
             ("sub-border-size", "3.0"),
             ("sub-shadow-offset", "1.0"),
+            ("sub-outline-color", "#00000000"),
             ("sub-font", "Verdana"),
             ("sub-ass-override", "force"),
             ("sub-margin-y", "22"),

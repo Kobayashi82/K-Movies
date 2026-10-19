@@ -27,9 +27,31 @@ export interface Filters {
   years: Range | null;
   imdb: Range | null;
   runtime: Range | null;
+  /** Tu nota (0,5–5). */
+  myRating: Range | null;
   watched: "all" | "watched" | "unwatched";
   subs: "all" | "yes" | "no";
   unmatched: boolean;
+}
+
+/** Filtros guardados (JSON) → filtros válidos; lo que no encaje, vacío. */
+export function parseFilters(json: string | undefined): Filters {
+  const base = emptyFilters();
+  if (!json) return base;
+  try {
+    const saved = JSON.parse(json) as Partial<Filters>;
+    const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+    const range = (v: unknown): Range | null =>
+      Array.isArray(v) && v.length === 2 && v.every((x) => typeof x === "number") ? [v[0], v[1]] : null;
+    for (const k of LIST_FACETS) base[k] = list(saved[k]);
+    for (const k of ["years", "imdb", "runtime", "myRating"] as RangeFacet[]) base[k] = range(saved[k]);
+    if (saved.watched === "watched" || saved.watched === "unwatched") base.watched = saved.watched;
+    if (saved.subs === "yes" || saved.subs === "no") base.subs = saved.subs;
+    base.unmatched = saved.unmatched === true;
+  } catch {
+    // Guardado roto: sin filtros.
+  }
+  return base;
 }
 
 export const emptyFilters = (): Filters => ({
@@ -42,13 +64,14 @@ export const emptyFilters = (): Filters => ({
   years: null,
   imdb: null,
   runtime: null,
+  myRating: null,
   watched: "all",
   subs: "all",
   unmatched: false,
 });
 
 export type ListFacet = "genres" | "directors" | "actors" | "countries" | "languages" | "certifications";
-export type RangeFacet = "years" | "imdb" | "runtime";
+export type RangeFacet = "years" | "imdb" | "runtime" | "myRating";
 
 export const LIST_FACETS: ListFacet[] = ["genres", "directors", "actors", "countries", "languages", "certifications"];
 
@@ -58,6 +81,7 @@ export function activeFilterCount(f: Filters): number {
     (f.years ? 1 : 0) +
     (f.imdb ? 1 : 0) +
     (f.runtime ? 1 : 0) +
+    (f.myRating ? 1 : 0) +
     (f.watched !== "all" ? 1 : 0) +
     (f.subs !== "all" ? 1 : 0) +
     (f.unmatched ? 1 : 0)
@@ -115,6 +139,7 @@ export function matches(item: Item, f: Filters, query: string): boolean {
   if (!inRange(item.year, f.years)) return false;
   if (!inRange(item.imdbRating, f.imdb)) return false;
   if (!inRange(item.runtime, f.runtime)) return false;
+  if (!inRange(item.myRating, f.myRating)) return false;
   if (f.watched === "watched" && item.watchCount === 0) return false;
   if (f.watched === "unwatched" && item.watchCount > 0) return false;
   if (f.subs === "yes" && !item.hasSubs) return false;
@@ -187,11 +212,16 @@ export function facetOptions(items: Item[], facet: ListFacet): FacetOption[] {
     .sort((a, b) => b.count - a.count || collator.compare(a.value, b.value));
 }
 
+const rangeValue = (item: Item, facet: RangeFacet) =>
+  facet === "years" ? item.year : facet === "imdb" ? item.imdbRating : facet === "myRating" ? item.myRating : item.runtime;
+
 export function rangeBounds(items: Item[], facet: RangeFacet): Range | null {
+  // Las estrellas van siempre de media a cinco, en cuanto haya alguna nota.
+  if (facet === "myRating") return items.some((i) => i.myRating != null) ? [0.5, 5] : null;
   let min = Infinity;
   let max = -Infinity;
   for (const item of items) {
-    const v = facet === "years" ? item.year : facet === "imdb" ? item.imdbRating : item.runtime;
+    const v = rangeValue(item, facet);
     if (v == null) continue;
     if (v < min) min = v;
     if (v > max) max = v;

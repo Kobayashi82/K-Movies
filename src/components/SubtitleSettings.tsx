@@ -23,6 +23,7 @@ const STYLE_DEFAULTS: Record<string, string> = {
   subHeight: "3",
   subFont: "",
   subBold: "false",
+  subOutline: "false",
   subColor: "#FFFFFF",
   subBackground: "true",
   subBackOpacity: "65",
@@ -38,6 +39,7 @@ interface Style {
   height: number;
   font: string;
   bold: boolean;
+  outline: boolean;
   color: string;
   background: boolean;
   backOpacity: number;
@@ -68,7 +70,8 @@ function Preview({ st }: { st: Style }) {
           color: st.color,
           background: st.background ? `rgba(0, 0, 0, ${st.backOpacity / 100})` : undefined,
           textShadow: !st.background && shadow ? `${unit(shadow)} ${unit(shadow)} 0 rgba(0, 0, 0, 0.75)` : undefined,
-          ["--stroke" as string]: unit(border * 2),
+          // Con un mínimo: a este tamaño el contorno real (1-2 px) apenas se vería.
+          ["--stroke" as string]: st.outline && border > 0 ? `max(4px, ${unit(border * 2)})` : "0",
           ["--pad" as string]: unit(border),
         }}
       >
@@ -119,6 +122,7 @@ export function SubtitleSettings() {
     height: num("subHeight"),
     font: get("subFont"),
     bold: get("subBold") === "true",
+    outline: get("subOutline") === "true",
     color: SUB_COLORS.some((c) => c.value === get("subColor")) ? get("subColor") : "#FFFFFF",
     background: get("subBackground") !== "false",
     backOpacity: num("subBackOpacity"),
@@ -217,6 +221,10 @@ export function SubtitleSettings() {
         {t("settings.subBold")}
       </label>
       <label className="check settings-check">
+        <input type="checkbox" checked={st.outline} onChange={(e) => setSetting("subOutline", String(e.target.checked))} />
+        {t("settings.subOutline")}
+      </label>
+      <label className="check settings-check">
         <input type="checkbox" checked={st.background} onChange={(e) => setSetting("subBackground", String(e.target.checked))} />
         {t("player.subBackground")}
       </label>
@@ -237,6 +245,7 @@ export function SubtitleSettings() {
         max={8}
         step={0.5}
         text={formatNumber(st.border)}
+        disabled={!st.background && !st.outline}
         onChange={(v) => setSetting("subBorder", String(v))}
       />
       <Range

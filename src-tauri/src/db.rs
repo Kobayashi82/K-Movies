@@ -10,6 +10,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/001_init.sql"),
     include_str!("../migrations/002_file_prefs.sql"),
     include_str!("../migrations/003_file_sub_style.sql"),
+    include_str!("../migrations/004_item_frame.sql"),
+    include_str!("../migrations/005_no_zero_rating.sql"),
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {
@@ -112,6 +114,8 @@ pub struct ItemSummary {
     pub tmdb_rating: Option<f64>,
     pub poster: Option<String>,
     pub backdrop: Option<String>,
+    /// Fotograma del vídeo, para las que no tienen póster o fondo de TMDb.
+    pub frame: Option<String>,
     pub matched: i64,
     pub watchlist: bool,
     pub added_at: String,
@@ -154,7 +158,8 @@ pub fn list_items(conn: &Connection, cache_dir: &Path) -> Result<Vec<ItemSummary
                 (SELECT MAX(h.watched_at) FROM history h WHERE h.item_id = i.id),
                 pb.position, pb.duration, pb.updated_at,
                 (SELECT h.rating FROM history h WHERE h.item_id = i.id AND h.rating IS NOT NULL
-                 ORDER BY h.watched_at DESC, h.id DESC LIMIT 1)
+                 ORDER BY h.watched_at DESC, h.id DESC LIMIT 1),
+                NULLIF(i.frame, '')
          FROM items i LEFT JOIN playback pb ON pb.item_id = i.id",
     )?;
     let cache = |name: Option<String>| name.map(|n| cache_dir.join(n).to_string_lossy().into_owned());
@@ -192,6 +197,7 @@ pub fn list_items(conn: &Connection, cache_dir: &Path) -> Result<Vec<ItemSummary
             duration: r.get(29)?,
             playback_at: r.get(30)?,
             my_rating: r.get(31)?,
+            frame: cache(r.get(32)?),
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -205,6 +211,8 @@ pub struct FileInfo {
     pub size: i64,
     pub has_subs: bool,
     pub added_at: String,
+    /// Subtítulos externos junto al vídeo (rutas). Se rellenan al pedir la ficha.
+    pub subs: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -240,7 +248,14 @@ pub fn item_detail(conn: &Connection, id: i64) -> Result<ItemDetail> {
         conn.prepare("SELECT id, path, size, has_subs, added_at FROM files WHERE item_id = ?1 ORDER BY size DESC")?;
     let files = stmt
         .query_map([id], |r| {
-            Ok(FileInfo { id: r.get(0)?, path: r.get(1)?, size: r.get(2)?, has_subs: r.get(3)?, added_at: r.get(4)? })
+            Ok(FileInfo {
+                id: r.get(0)?,
+                path: r.get(1)?,
+                size: r.get(2)?,
+                has_subs: r.get(3)?,
+                added_at: r.get(4)?,
+                subs: Vec::new(),
+            })
         })?
         .collect::<rusqlite::Result<_>>()?;
     let mut stmt = conn.prepare(
@@ -356,9 +371,9 @@ pub fn add_watch(conn: &Connection, item_id: i64, date: Option<&str>, source: &s
 /// reproductor van con hora en UTC. Para usar en SQL con la columna `watched_at`.
 pub const LOCAL_DAY: &str = "CASE WHEN length(watched_at) > 10 THEN date(watched_at, 'localtime') ELSE watched_at END";
 
-/// Nota de un visionado (0,5–5 en medias estrellas, como Letterboxd; `None` la quita).
+/// Nota de un visionado (0,5–5 en medias estrellas, como Letterboxd). `None` o 0 la quitan.
 pub fn set_rating(conn: &Connection, history_id: i64, rating: Option<f64>) -> Result<()> {
-    let rating = rating.map(|r| ((r * 2.0).round() / 2.0).clamp(0.5, 5.0));
+    let rating = rating.map(|r| ((r * 2.0).round() / 2.0).min(5.0)).filter(|r| *r > 0.0);
     conn.execute("UPDATE history SET rating = ?2 WHERE id = ?1", params![history_id, rating])?;
     Ok(())
 }

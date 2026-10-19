@@ -1,19 +1,33 @@
-import { Check, Play } from "lucide-react";
+import { Check, Clapperboard, Play } from "lucide-react";
 import { memo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { movieMenu, openMenu, play } from "../actions";
 import { fileUrl, type Item } from "../api";
 import { useNowPlaying } from "../hooks";
 import { useStore } from "../store";
 import { formatNumber, heroTransition, hueOf } from "../util";
 
-export function PosterImage({ item, eager = false }: { item: Item; eager?: boolean }) {
+/** `showTitle`: el título dentro del póster cuando no hay imagen (solo si no se ve ya debajo o al lado). */
+export function PosterImage({ item, eager = false, showTitle = false }: { item: Item; eager?: boolean; showTitle?: boolean }) {
   const [loaded, setLoaded] = useState(false);
   const src = fileUrl(item.poster);
   if (!src) {
-    const hue = hueOf(item.title);
+    // Sin póster: un fotograma de la propia película (si se ha podido sacar) o un cartel oscuro
+    // con una claqueta, con un tono propio de cada película.
+    const frame = fileUrl(item.frame);
     return (
-      <div className="poster-fallback" style={{ ["--hue" as string]: hue }}>
-        <span>{item.title}</span>
-        {item.year && <small>{item.year}</small>}
+      <div className={frame ? "poster-fallback has-frame" : "poster-fallback"} style={{ ["--hue" as string]: hueOf(item.title) }}>
+        {frame ? (
+          <img src={frame} alt="" draggable={false} loading={eager ? "eager" : "lazy"} decoding="async" className="loaded" />
+        ) : (
+          <Clapperboard className="poster-fallback-icon" strokeWidth={1.2} />
+        )}
+        {showTitle && (
+          <div className="poster-fallback-text">
+            <span>{item.title}</span>
+            {item.year && <small>{item.year}</small>}
+          </div>
+        )}
       </div>
     );
   }
@@ -39,6 +53,7 @@ export interface CardDisplay {
 }
 
 export const PosterCard = memo(function PosterCard({ item, display, index }: { item: Item; display: CardDisplay; index: number }) {
+  const { t } = useTranslation();
   const ratings = [
     { source: "imdb", label: "IMDb", value: item.imdbRating },
     { source: "tmdb", label: "TMDb", value: item.tmdbRating },
@@ -60,9 +75,10 @@ export const PosterCard = memo(function PosterCard({ item, display, index }: { i
       onMouseEnter={() => useStore.getState().hover(item.id)}
       onFocus={() => useStore.getState().hover(item.id)}
       onClick={open}
+      onContextMenu={(e) => openMenu(e, movieMenu(item))}
     >
       <div className="poster" data-poster-id={item.id}>
-        <PosterImage item={item} />
+        <PosterImage item={item} showTitle={!display.title} />
         <div className="poster-shade" />
         {ratings.length > 0 && (
           <span className="rating-badges">
@@ -80,7 +96,15 @@ export const PosterCard = memo(function PosterCard({ item, display, index }: { i
           </span>
         )}
         {item.fileCount > 0 && (
-          <span className="play-hint">
+          // El círculo del centro reproduce (o trae su reproductor al frente); el resto del póster abre la ficha.
+          <span
+            className="play-hint"
+            title={live ? t("menu.goToPlayer") : t("detail.play")}
+            onClick={(e) => {
+              e.stopPropagation();
+              void play(item.id);
+            }}
+          >
             <Play size={22} fill="currentColor" strokeWidth={0} />
           </span>
         )}

@@ -13,6 +13,20 @@ export function labelFor(facet: ListFacet, value: string): string {
   return value;
 }
 
+/** Cómo se escribe cada valor de los filtros de rango (en el deslizador y en las etiquetas). */
+export function rangeFormat(facet: RangeFacet): (v: number) => string {
+  switch (facet) {
+    case "imdb":
+      return (v) => formatNumber(v);
+    case "runtime":
+      return formatRuntime;
+    case "myRating":
+      return (v) => `★ ${formatNumber(v, v % 1 ? 1 : 0)}`;
+    default:
+      return String;
+  }
+}
+
 function Segmented<T extends string>({ value, options, onChange }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void }) {
   return (
     <div className="segmented">
@@ -76,14 +90,14 @@ function RangeFilter({ facet }: { facet: RangeFacet }) {
   const setFilters = useStore((s) => s.setFilters);
   const bounds = useMemo(() => rangeBounds(viewItems, facet), [viewItems, facet]);
   if (!bounds || bounds[0] === bounds[1]) return null;
-  const format = facet === "imdb" ? (v: number) => formatNumber(v) : facet === "runtime" ? formatRuntime : String;
+  const format = rangeFormat(facet);
   return (
     <section className="filter-section">
       <h4>{t(`filters.${facet}`)}</h4>
       <RangeSlider
         bounds={bounds}
         value={value}
-        step={facet === "imdb" ? 0.1 : facet === "runtime" ? 5 : 1}
+        step={facet === "imdb" ? 0.1 : facet === "runtime" ? 5 : facet === "myRating" ? 0.5 : 1}
         format={format}
         onChange={(v) => setFilters((f) => ({ ...f, [facet]: v }))}
       />
@@ -96,6 +110,9 @@ export function FilterPanel() {
   const filters = useStore((s) => s.filters);
   const setFilters = useStore((s) => s.setFilters);
   const view = useStore((s) => s.view);
+  const viewItems = useViewItems();
+  // Las que TMDb no ha reconocido por el nombre del archivo (para corregirlas a mano).
+  const unmatched = useMemo(() => viewItems.filter((i) => i.matched === 0).length, [viewItems]);
 
   return (
     <motion.aside
@@ -134,6 +151,7 @@ export function FilterPanel() {
             />
           </section>
         )}
+        <RangeFilter facet="myRating" />
         <RangeFilter facet="imdb" />
         <RangeFilter facet="years" />
         <RangeFilter facet="runtime" />
@@ -143,12 +161,15 @@ export function FilterPanel() {
         <FacetList facet="countries" searchable />
         <FacetList facet="languages" searchable />
         <FacetList facet="certifications" />
-        <section className="filter-section">
-          <label className="check">
-            <input type="checkbox" checked={filters.unmatched} onChange={(e) => setFilters((f) => ({ ...f, unmatched: e.target.checked }))} />
-            {t("filters.unmatched")}
-          </label>
-        </section>
+        {(unmatched > 0 || filters.unmatched) && (
+          <section className="filter-section">
+            <label className="check">
+              <input type="checkbox" checked={filters.unmatched} onChange={(e) => setFilters((f) => ({ ...f, unmatched: e.target.checked }))} />
+              {t("filters.unmatchedCount", { count: unmatched })}
+            </label>
+            <p className="filter-hint">{t("filters.unmatchedHint")}</p>
+          </section>
+        )}
       </div>
     </motion.aside>
   );

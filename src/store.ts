@@ -9,7 +9,7 @@ import {
   type ScanProgress,
   type TransferInfo,
 } from "./api";
-import { emptyFilters, type Filters, type SortKey, type View, SORT_KEYS } from "./filters";
+import { emptyFilters, parseFilters, type Filters, type SortKey, type View, SORT_KEYS } from "./filters";
 
 export type ThemeSetting = "system" | "dark" | "light";
 
@@ -40,6 +40,22 @@ export interface Choice {
   resolve: (value: string | null) => void;
 }
 
+/** Una opción del menú del botón derecho (`null`: separador). */
+export type MenuEntry = {
+  label: string;
+  icon?: React.ComponentType<{ size?: number }>;
+  danger?: boolean;
+  disabled?: boolean;
+  action: () => unknown;
+} | null;
+
+/** Menú del botón derecho, propio de la app (en vez del del navegador). */
+export interface ContextMenu {
+  x: number;
+  y: number;
+  entries: MenuEntry[];
+}
+
 interface State {
   ready: boolean;
   info: AppInfo | null;
@@ -64,6 +80,7 @@ interface State {
   dialog: Dialog | null;
   trailer: string | null;
   choice: Choice | null;
+  menu: ContextMenu | null;
   transfers: TransferInfo[];
   notices: ToastNotice[];
   playing: NowPlaying[];
@@ -129,6 +146,7 @@ export const useStore = create<State>((set, get) => ({
   dialog: null,
   trailer: null,
   choice: null,
+  menu: null,
   transfers: [],
   notices: [],
   playing: [],
@@ -156,6 +174,7 @@ export const useStore = create<State>((set, get) => ({
       gridSize: Number(settings.gridSize) || 180,
       filtersOpen: settings.filtersOpen === "true",
       watchedMode: settings.watchedMode === "history" ? "history" : "grid",
+      filters: parseFilters(settings.filters),
     });
   },
 
@@ -167,7 +186,7 @@ export const useStore = create<State>((set, get) => ({
     persist(key, value);
   },
   setView: (view) => {
-    set({ view, selectedId: null });
+    set({ view, selectedId: null, hoveredId: null });
     persist("view", view);
   },
   setQuery: (query) => set({ query }),
@@ -176,8 +195,15 @@ export const useStore = create<State>((set, get) => ({
     persist("sortKey", sortKey);
     persist("sortDesc", String(sortDesc));
   },
-  setFilters: (update) => set({ filters: update(get().filters) }),
-  clearFilters: () => set({ filters: emptyFilters(), query: "" }),
+  setFilters: (update) => {
+    const filters = update(get().filters);
+    set({ filters });
+    persist("filters", JSON.stringify(filters), 400);
+  },
+  clearFilters: () => {
+    set({ filters: emptyFilters(), query: "" });
+    persist("filters", JSON.stringify(emptyFilters()));
+  },
   setGridSize: (gridSize) => {
     set({ gridSize });
     persist("gridSize", String(gridSize), 400);

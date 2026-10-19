@@ -1,14 +1,14 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Download, Plus, SearchX } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { askFinished, importPaths } from "./actions";
+import { askFinished, importPaths, syncTray } from "./actions";
 import { api, onLibraryChanged, onNotice, onPlayback, onScanProgress, onTransfers } from "./api";
 import { ActiveFilters } from "./components/ActiveFilters";
 import { Backdrop } from "./components/Backdrop";
 import { ChoiceDialog } from "./components/ChoiceDialog";
+import { ContextMenu } from "./components/ContextMenu";
 import { ContinueRow } from "./components/ContinueRow";
 import { Detail } from "./components/Detail";
 import { FilterPanel } from "./components/FilterPanel";
@@ -28,7 +28,7 @@ import { useStore } from "./store";
 import { useTheme } from "./theme";
 
 export default function App() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const searchRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const view = useStore((s) => s.view);
@@ -37,6 +37,7 @@ export default function App() {
   const dialog = useStore((s) => s.dialog);
   const trailer = useStore((s) => s.trailer);
   const choice = useStore((s) => s.choice);
+  const menu = useStore((s) => s.menu);
   const hasLibraries = useStore((s) => s.libraries.length > 0);
   const theme = useStore((s) => s.settings.theme);
   const query = useStore((s) => s.query);
@@ -46,6 +47,8 @@ export default function App() {
   const showContinue = useShowContinue() && continueItems.length > 0;
   const historyMode = useStore((s) => s.view === "watched" && s.watchedMode === "history");
   useTheme(theme);
+  // El menú del icono de notificación, en el idioma de la interfaz.
+  useEffect(syncTray, [i18n.language]);
 
   useEffect(() => {
     const { refreshItems, refreshLibraries, setScan, setTransfers, setPlaying, pushNotice } = useStore.getState();
@@ -74,7 +77,8 @@ export default function App() {
     ];
     void api.listTransfers().then(setTransfers);
     void api.nowPlaying().then(setPlaying);
-    void getCurrentWindow().show();
+    // Se enseña la ventana (arranca oculta para evitar el destello blanco), salvo al iniciar minimizado.
+    void api.mainReady();
     // Al abrir, se reescanea en segundo plano para recoger archivos nuevos o borrados.
     if (useStore.getState().libraries.length) void api.startScan();
 
@@ -99,7 +103,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <Backdrop />
+      <Backdrop items={visible} />
       <TitleBar />
       <Toolbar ref={searchRef} />
       <div className="body">
@@ -138,6 +142,7 @@ export default function App() {
         {dialog?.kind === "person" && <PersonDialog key={`person${dialog.personId}`} personId={dialog.personId} />}
         {trailer && <Trailer key="trailer" videoKey={trailer} />}
         {choice && <ChoiceDialog key="choice" choice={choice} />}
+        {menu && <ContextMenu key={`menu${menu.x},${menu.y}`} menu={menu} />}
       </AnimatePresence>
       <AnimatePresence>
         {dragging && hasLibraries && (

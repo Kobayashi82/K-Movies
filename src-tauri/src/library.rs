@@ -2,7 +2,7 @@
 //! También las acciones sueltas sobre fichas: identificar a mano, añadir y actualizar.
 
 use crate::tmdb::{self, Details, Tmdb};
-use crate::{AppState, db, imdb, scanner};
+use crate::{AppState, db, frames, imdb, scanner};
 use anyhow::{Result, anyhow};
 use futures::StreamExt;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter, Manager};
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
-    /// `scanning` | `matching` | `refreshing` | `ratings` | `done` | `error`
+    /// `scanning` | `matching` | `refreshing` | `frames` | `ratings` | `done` | `error`
     pub phase: &'static str,
     pub current: usize,
     pub total: usize,
@@ -59,8 +59,11 @@ impl ChangeNotifier {
     }
 }
 
+/// Idioma de los datos de TMDb: el elegido en Ajustes o, en "Automático", el que corresponde al
+/// idioma de la interfaz (lo apunta la interfaz en `metadataLanguageAuto`).
 fn metadata_language(settings: &HashMap<String, String>) -> String {
-    settings.get("metadataLanguage").cloned().unwrap_or_else(|| "es-ES".into())
+    let get = |k: &str| settings.get(k).filter(|v| !v.is_empty() && *v != "auto").cloned();
+    get("metadataLanguage").or_else(|| get("metadataLanguageAuto")).unwrap_or_else(|| "en-US".into())
 }
 
 /// Cliente de TMDb con la clave guardada, y el idioma de los datos.
@@ -135,10 +138,25 @@ pub async fn scan(app: AppHandle) -> Result<()> {
         }
     }
 
-    // 3. Imágenes que falten (p. ej. si se cortó la conexión en un escaneo anterior).
+    // 3. Fichas descargadas en otro idioma (se ha cambiado el de la información o el de la
+    //    interfaz en "Automático"): título, sinopsis, géneros y póster en el idioma nuevo.
+    if !key.is_empty() {
+        let stale = items_to_refresh(&state.db(), Some(&language))?;
+        if !stale.is_empty() {
+            let client = Tmdb::new(state.http.clone(), &key);
+            refresh_items(&app, &client, &language, stale, &notifier).await;
+        }
+    }
+
+    // 4. Imágenes que falten (p. ej. si se cortó la conexión en un escaneo anterior).
     download_missing_images(&app).await;
 
-    // 4. Notas de IMDb.
+    // 5. Fotograma del vídeo para las que no tienen póster o fondo (las sin identificar, sobre todo).
+    if let Err(e) = frames::missing(&app).await {
+        eprintln!("[scan] fotogramas: {e:#}");
+    }
+
+    // 6. Notas de IMDb.
     emit(&app, "ratings", 0, 0, None);
     if let Err(e) = update_imdb_ratings(&app, None).await {
         eprintln!("[scan] notas de IMDb: {e:#}");
@@ -154,20 +172,37 @@ pub async fn scan(app: AppHandle) -> Result<()> {
 /// idioma de los datos). Respeta las identificaciones hechas a mano.
 pub async fn refresh_all(app: AppHandle) -> Result<()> {
     let (client, language) = client(&app)?;
-    let items: Vec<(i64, i64, String)> = {
-        let state = app.state::<AppState>();
-        let conn = state.db();
-        let mut stmt = conn.prepare("SELECT id, tmdb_id, title FROM items WHERE tmdb_id IS NOT NULL")?;
-        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?
-    };
+    let items = items_to_refresh(&app.state::<AppState>().db(), None)?;
+    let notifier = Arc::new(ChangeNotifier { app: app.clone(), last: Mutex::new(Instant::now()) });
+    refresh_items(&app, &client, &language, items, &notifier).await;
+    emit(&app, "ratings", 0, 0, None);
+    if let Err(e) = update_imdb_ratings(&app, None).await {
+        eprintln!("[refresh] notas de IMDb: {e:#}");
+    }
+    notifier.notify(true);
+    emit(&app, "done", 0, 0, None);
+    Ok(())
+}
+
+/// Películas identificadas que hay que volver a descargar: todas o, con `not_in`, las que se
+/// descargaron en otro idioma.
+fn items_to_refresh(conn: &Connection, not_in: Option<&str>) -> Result<Vec<(i64, i64, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, tmdb_id, title FROM items
+         WHERE tmdb_id IS NOT NULL AND (?1 IS NULL OR COALESCE(meta_language, '') != ?1)",
+    )?;
+    Ok(stmt.query_map([not_in], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Vuelve a descargar la ficha de esas películas (con el progreso en la esquina).
+async fn refresh_items(app: &AppHandle, client: &Tmdb, language: &str, items: Vec<(i64, i64, String)>, notifier: &Arc<ChangeNotifier>) {
     let total = items.len();
     let done = Arc::new(AtomicUsize::new(0));
-    let notifier = Arc::new(ChangeNotifier { app: app.clone(), last: Mutex::new(Instant::now()) });
-    emit(&app, "refreshing", 0, total, None);
+    emit(app, "refreshing", 0, total, None);
     futures::stream::iter(items)
         .map(|(id, tmdb_id, title)| {
             let (app, client, language, done, notifier) =
-                (app.clone(), client.clone(), language.clone(), done.clone(), notifier.clone());
+                (app.clone(), client.clone(), language.to_string(), done.clone(), notifier.clone());
             async move {
                 if let Err(e) = store_details(&app, &client, tmdb_id, &language, None, Some(id)).await {
                     eprintln!("[refresh] {title}: {e:#}");
@@ -180,13 +215,6 @@ pub async fn refresh_all(app: AppHandle) -> Result<()> {
         .buffer_unordered(6)
         .collect::<Vec<()>>()
         .await;
-    emit(&app, "ratings", 0, 0, None);
-    if let Err(e) = update_imdb_ratings(&app, None).await {
-        eprintln!("[refresh] notas de IMDb: {e:#}");
-    }
-    notifier.notify(true);
-    emit(&app, "done", 0, 0, None);
-    Ok(())
 }
 
 fn sync_files(conn: &Connection, lib: &db::Library, root: &Path, walk: &scanner::Walk) -> Result<()> {

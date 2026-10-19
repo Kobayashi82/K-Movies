@@ -11,6 +11,7 @@ import {
   Pin,
   Play,
   Plus,
+  Proportions,
   RotateCcw,
   RotateCw,
   Volume2,
@@ -66,10 +67,6 @@ const isCompact = () => window.innerWidth < 560 || window.innerHeight < 320;
 /** Proporciones de la tecla A y recortes de la tecla C, como en VLC. La primera es la del vídeo. */
 const ASPECTS = ["", "16:9", "4:3", "1:1", "16:10", "2.21:1", "2.35:1", "2.39:1", "5:4"];
 const CROPS = ["", "16:10", "16:9", "4:3", "1.85:1", "2.21:1", "2.35:1", "2.39:1", "5:3", "5:4", "1:1"];
-const ratioOf = (r: string) => {
-  const [w, h = "1"] = r.split(":");
-  return Number(w) / Number(h);
-};
 const isAss = (tr: Track | undefined) => tr?.codec === "ass" || tr?.codec === "ssa";
 
 /** Sin anillo de foco al pulsar con el ratón: si no, Espacio o Esc después lo dejan marcado. */
@@ -138,14 +135,14 @@ export function Player() {
   const { t } = useTranslation();
   const [s, setS] = useState<PlayerState | null>(null);
   const [visible, setVisible] = useState(true);
-  const [panel, setPanel] = useState<"audio" | "subs" | null>(null);
+  const [panel, setPanel] = useState<"audio" | "subs" | "view" | null>(null);
   const [drag, setDrag] = useState<number | null>(null);
   const [hover, setHover] = useState<{ x: number; time: number } | null>(null);
   const [compact, setCompact] = useState(isCompact);
   /** Aviso breve en pantalla al cambiar de pista, proporción o recorte con el teclado. */
   const [osd, setOsd] = useState<string | null>(null);
-  /** Posición en `ASPECTS` y `CROPS` (solo para esta sesión). */
-  const view = useRef({ aspect: 0, crop: 0 });
+  /** Aviso del volumen (se dibuja con el valor actual, que llega de mpv un instante después). */
+  const [volumeOsd, setVolumeOsd] = useState(false);
   const osdTimer = useRef(0);
   const hideTimer = useRef(0);
   const clickTimer = useRef(0);
@@ -204,6 +201,7 @@ export function Player() {
 
   const flash = (text: string) => {
     setOsd(text);
+    setVolumeOsd(false);
     window.clearTimeout(osdTimer.current);
     osdTimer.current = window.setTimeout(() => setOsd(null), 1800);
   };
@@ -226,19 +224,37 @@ export function Player() {
     flash(`${label}: ${name}`);
   };
 
-  /** Proporción forzada (A) o recorte (C); cada pulsación pasa a la siguiente, como en VLC. */
-  const cycleView = (kind: "aspect" | "crop") => {
-    const v = view.current;
-    const list = kind === "aspect" ? ASPECTS : CROPS;
-    const index = (v[kind] + 1) % list.length;
-    const value = list[index];
-    v.aspect = kind === "aspect" ? index : 0;
-    v.crop = kind === "crop" ? index : 0;
-    const done = kind === "aspect" ? api.player.aspect(value) : api.player.crop(value ? ratioOf(value) : 0);
+  /** Proporción forzada o recorte (`""`: el del vídeo). Una quita la otra. */
+  const setView = (kind: "aspect" | "crop", value: string) => {
+    const done = kind === "aspect" ? api.player.aspect(value) : api.player.crop(value);
     done.then(
-      () => flash(value ? t(`player.${kind}`, { value }) : t(`player.${kind}Off`)),
+      () => flash(t(`player.${kind}`, { value: value || t("player.default") })),
       () => flash(t("player.viewFailed")),
     );
+  };
+
+  /** Siguiente proporción (A) o recorte (C), como en VLC. */
+  const cycleView = (kind: "aspect" | "crop") => {
+    if (!s) return;
+    const list = kind === "aspect" ? ASPECTS : CROPS;
+    setView(kind, list[(list.indexOf(s[kind]) + 1) % list.length]);
+  };
+
+  /** Sube o baja el volumen y lo enseña en pantalla. */
+  const changeVolume = (delta: number) => {
+    if (!s) return;
+    if (s.mute) void api.player.set("mute", false);
+    add("volume", s.volume + delta > 130 ? 130 - s.volume : delta);
+    setVolumeOsd(true);
+    setOsd(null);
+    window.clearTimeout(osdTimer.current);
+    osdTimer.current = window.setTimeout(() => setVolumeOsd(false), 1500);
+  };
+
+  // La rueda del ratón también cambia el volumen (salvo encima de un panel, que se desplaza).
+  const onWheel = (e: React.WheelEvent) => {
+    if ((e.target as Element).closest(".pl-panel") || !e.deltaY) return;
+    changeVolume(e.deltaY < 0 ? 5 : -5);
   };
 
   const togglePause = () => s && void api.player.set("pause", !s.paused);
@@ -261,8 +277,8 @@ export function Player() {
       if (k === " " || k === "k") togglePause();
       else if (k === "arrowleft") seekBy(e.shiftKey ? -60 : -10);
       else if (k === "arrowright") seekBy(e.shiftKey ? 60 : 10);
-      else if (k === "arrowup") add("volume", 5);
-      else if (k === "arrowdown") add("volume", -5);
+      else if (k === "arrowup") changeVolume(5);
+      else if (k === "arrowdown") changeVolume(-5);
       else if (k === "m") void api.player.set("mute", !s.mute);
       else if (k === "f" || k === "enter") fullscreen(!s.fullscreen);
       else if (k === "t") void api.player.ontop(!s.ontop);
@@ -330,6 +346,19 @@ export function Player() {
   // Arrastrando la barra de arriba (o toda la ventana si es pequeña) se mueve la ventana.
   const dragRegion = s.fullscreen ? {} : { "data-tauri-drag-region": true };
 
+  const volume = s.mute ? 0 : Math.round(s.volume);
+  const osdView = volumeOsd ? (
+    <div className="pl-osd pl-osd-volume">
+      {volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+      <span className="pl-osd-bar">
+        <span style={{ width: `${(volume / 130) * 100}%` }} />
+      </span>
+      <span className="pl-osd-value">{volume} %</span>
+    </div>
+  ) : osd ? (
+    <div className="pl-osd">{osd}</div>
+  ) : null;
+
   const windowButtons = (
     <>
       {!s.fullscreen && (
@@ -350,10 +379,11 @@ export function Player() {
         onMouseMove={poke}
         onMouseDown={noMouseFocus}
         onPointerUp={dropFocus}
+        onWheel={onWheel}
         {...dragRegion}
       >
         {loading && <Loader2 className="pl-spinner spin" size={32} />}
-        {osd && <div className="pl-osd">{osd}</div>}
+        {osdView}
         <div className="pl-compact-actions">{windowButtons}</div>
         <button className="pl-compact-play" onClick={togglePause} title={t(s.paused ? "player.play" : "player.pause")}>
           {s.paused ? <Play size={26} fill="currentColor" strokeWidth={0} /> : <Pause size={26} fill="currentColor" strokeWidth={0} />}
@@ -368,10 +398,10 @@ export function Player() {
   const marginPercent = Math.round(s.subMargin / PX_PER_PERCENT);
 
   return (
-    <div className={shown ? "player" : "player idle"} onMouseMove={poke} onMouseDown={noMouseFocus} onPointerUp={dropFocus}>
+    <div className={shown ? "player" : "player idle"} onMouseMove={poke} onMouseDown={noMouseFocus} onPointerUp={dropFocus} onWheel={onWheel}>
       <div className="pl-stage" onClick={onStageClick} onDoubleClick={onStageDouble} />
       {loading && <Loader2 className="pl-spinner spin" size={44} />}
-      {osd && <div className="pl-osd">{osd}</div>}
+      {osdView}
 
       <div className="pl-top" {...dragRegion}>
         <span className="pl-title" {...dragRegion}>
@@ -382,7 +412,30 @@ export function Player() {
 
       {panel && (
         <div className="pl-panel" onClick={(e) => e.stopPropagation()}>
-          {panel === "audio" ? (
+          {panel === "view" ? (
+            <>
+              {(["aspect", "crop"] as const).map((kind) => (
+                <div key={kind} className="pl-view-group">
+                  <h4>{t(`player.${kind}Title`)}</h4>
+                  <div className="pl-chips">
+                    {(kind === "aspect" ? ASPECTS : CROPS).map((value) => (
+                      <button key={value || "default"} className={s[kind] === value ? "pl-chip active" : "pl-chip"} onClick={() => setView(kind, value)}>
+                        {value || t("player.default")}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <p className="pl-note keys">
+                <span>
+                  <kbd>A</kbd> {t("player.nextAspect")}
+                </span>
+                <span>
+                  <kbd>C</kbd> {t("player.nextCrop")}
+                </span>
+              </p>
+            </>
+          ) : panel === "audio" ? (
             <>
               <h4>{t("player.audio")}</h4>
               <ul>
@@ -511,6 +564,13 @@ export function Player() {
           </button>
           <button className={panel === "subs" ? "pl-btn active" : "pl-btn"} onClick={() => setPanel(panel === "subs" ? null : "subs")} title={t("player.subtitles")}>
             <Captions size={20} />
+          </button>
+          <button
+            className={panel === "view" ? "pl-btn active" : s.aspect || s.crop ? "pl-btn changed" : "pl-btn"}
+            onClick={() => setPanel(panel === "view" ? null : "view")}
+            title={t("player.view")}
+          >
+            <Proportions size={20} />
           </button>
           <button className="pl-btn" onClick={() => fullscreen(!s.fullscreen)} title={t(s.fullscreen ? "player.exitFullscreen" : "player.fullscreen")}>
             {s.fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
