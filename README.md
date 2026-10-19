@@ -1,4 +1,4 @@
-# K-Movies
+<h1 align="center">K-Movies 5.0</h1>
 
 Catálogo de películas para Windows. Escanea tus carpetas, identifica cada película con TMDb y la muestra con póster, sinopsis, reparto y notas de IMDb y TMDb. Las reproduce en su propio reproductor (o en VLC), recuerda por dónde ibas y lleva tu historial, que puedes pasar a Letterboxd.
 
