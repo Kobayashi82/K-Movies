@@ -62,7 +62,13 @@ export const PosterCard = memo(function PosterCard({ item, display, index }: { i
   const year = display.year && item.year ? <span className="card-year">{item.year}</span> : null;
   // La duración de TMDb y, si no hay, la del archivo.
   const minutes = item.runtime ?? (item.duration ? Math.round(item.duration / 60) : null);
-  const runtime = display.runtime && minutes ? <span className="card-year">{formatRuntime(minutes)}</span> : null;
+  const runtime =
+    display.runtime && minutes ? (
+      <span className="card-year">
+        {year && "· "}
+        {formatRuntime(minutes)}
+      </span>
+    ) : null;
   // Mientras se ve, la barra avanza en directo.
   const live = useNowPlaying(item.id);
   const position = live?.tracked ? live.position : item.position;

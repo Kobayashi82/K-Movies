@@ -130,43 +130,6 @@ function Stepper(props: {
   );
 }
 
-/**
- * Sincronizar como en VLC: se pulsa un botón cuando pasa lo que va bien (se ve la escena, se oye la
- * frase) y el otro cuando llega lo que va desfasado, en cualquier orden; el retardo se corrige con la
- * diferencia entre los dos momentos.
- */
-function SyncMarks(props: { property: "audio-delay" | "sub-delay"; target: string; moving: string; onDone: (delta: number) => void }) {
-  const { t } = useTranslation();
-  const [marks, setMarks] = useState<{ target?: number; moving?: number }>({});
-  const mark = async (which: "target" | "moving") => {
-    const position = (await api.player.state()).position;
-    if (position == null) return;
-    const next = { ...marks, [which]: position };
-    if (next.target != null && next.moving != null) {
-      const delta = Math.round((next.target - next.moving) * 1000) / 1000;
-      setMarks({});
-      if (delta) {
-        await api.player.command("add", props.property, delta);
-        props.onDone(delta);
-      }
-    } else setMarks(next);
-  };
-  return (
-    <div className="pl-sync">
-      <span>{t("player.sync")}</span>
-      <div className="pl-chips">
-        <button className={marks.target != null ? "pl-chip active" : "pl-chip"} onClick={() => void mark("target")}>
-          {props.target}
-        </button>
-        <button className={marks.moving != null ? "pl-chip active" : "pl-chip"} onClick={() => void mark("moving")}>
-          {props.moving}
-        </button>
-      </div>
-      <small>{t("player.syncHint")}</small>
-    </div>
-  );
-}
-
 /** El reproductor integrado: mpv dibuja el vídeo debajo y esto pone los controles encima. */
 export function Player() {
   const { t } = useTranslation();
@@ -319,6 +282,8 @@ export function Player() {
       else if (k === "m") void api.player.set("mute", !s.mute);
       else if (k === "f" || k === "enter") fullscreen(!s.fullscreen);
       else if (k === "t") void api.player.ontop(!s.ontop);
+      else if (e.ctrlKey && k === "-") add("audio-delay", -0.05);
+      else if (e.ctrlKey && (k === "+" || k === "=")) add("audio-delay", 0.05);
       else if (k === "z") add("sub-delay", -0.1);
       else if (k === "x") add("sub-delay", 0.1);
       else if (k === "b") cycleTrack("audio");
@@ -492,14 +457,13 @@ export function Player() {
                 onPlus={() => add("audio-delay", 0.05)}
                 onReset={s.audioDelay ? () => void api.player.set("audio-delay", 0) : undefined}
               />
-              <SyncMarks
-                property="audio-delay"
-                target={t("player.syncSeen")}
-                moving={t("player.syncHeard")}
-                onDone={(delta) => flash(`${t("player.audioDelay")}: ${signed(s.audioDelay + delta)}`)}
-              />
-              <p className="pl-note">
-                <kbd>B</kbd> {t("player.nextAudio")}
+              <p className="pl-note keys">
+                <span>
+                  <kbd>B</kbd> {t("player.nextAudio")}
+                </span>
+                <span>
+                  <kbd>Ctrl −</kbd> <kbd>Ctrl +</kbd> {t("player.audioSync")}
+                </span>
               </p>
             </>
           ) : (
@@ -527,12 +491,6 @@ export function Player() {
                 onPlus={() => add("sub-delay", 0.1)}
                 onReset={s.subDelay ? () => void api.player.set("sub-delay", 0) : undefined}
               />
-              <SyncMarks
-                property="sub-delay"
-                target={t("player.syncHeard")}
-                moving={t("player.syncSub")}
-                onDone={(delta) => flash(`${t("player.subDelay")}: ${signed(s.subDelay + delta)}`)}
-              />
               <Stepper
                 label={t("player.subSize")}
                 value={`${Math.round(s.subScale * 100)} %`}
@@ -553,8 +511,13 @@ export function Player() {
                 <span>{t("player.subBackground")}</span>
                 <input type="checkbox" checked={s.subBackground} onChange={(e) => void api.player.subBackground(e.target.checked)} />
               </label>
-              <p className="pl-note">
-                <kbd>V</kbd> {t("player.nextSub")}
+              <p className="pl-note keys">
+                <span>
+                  <kbd>V</kbd> {t("player.nextSub")}
+                </span>
+                <span>
+                  <kbd>Z</kbd> <kbd>X</kbd> {t("player.subSync")}
+                </span>
               </p>
             </>
           )}
