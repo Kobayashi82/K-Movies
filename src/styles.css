@@ -2347,17 +2347,20 @@ html.player-mode body {
   outline: none;
 }
 /* Aviso breve al cambiar de pista, proporción o recorte con el teclado. */
+/* Mensajes (volumen, retardos, pistas…): grandes y en el centro para que se vean bien. */
 .pl-osd {
   position: absolute;
-  top: 64px;
+  top: 50%;
   left: 50%;
   z-index: 2;
   max-width: calc(100% - 48px);
-  transform: translateX(-50%);
-  padding: 7px 14px;
-  border-radius: var(--radius);
+  transform: translate(-50%, -50%);
+  padding: 14px 28px;
+  border-radius: calc(var(--radius) * 1.5);
   background: var(--pl-glass);
-  font-size: 14px;
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2365,13 +2368,13 @@ html.player-mode body {
   animation: pl-osd-in 0.15s var(--ease);
 }
 .player.compact .pl-osd {
-  top: 46px;
-  font-size: 12.5px;
+  padding: 8px 14px;
+  font-size: 15px;
 }
 @keyframes pl-osd-in {
   from {
     opacity: 0;
-    transform: translate(-50%, -4px);
+    transform: translate(-50%, -50%) scale(0.96);
   }
 }
 .pl-stage {
@@ -2998,13 +3001,16 @@ html.player-mode body {
 .pl-osd-volume {
   display: flex;
   align-items: center;
+  gap: 16px;
+  width: min(380px, calc(100% - 48px));
+}
+.player.compact .pl-osd-volume {
   gap: 10px;
-  min-width: 200px;
 }
 .pl-osd-bar {
   flex: 1;
-  height: 4px;
-  border-radius: 2px;
+  height: 6px;
+  border-radius: 3px;
   background: rgba(255, 255, 255, 0.2);
   overflow: hidden;
 }
@@ -3014,7 +3020,7 @@ html.player-mode body {
   background: var(--accent);
 }
 .pl-osd-value {
-  min-width: 44px;
+  min-width: 2.6em;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }

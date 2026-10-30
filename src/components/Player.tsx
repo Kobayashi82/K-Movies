@@ -267,6 +267,12 @@ export function Player() {
   };
   /** Suma sobre el valor que tiene mpv ahora (no sobre el último estado recibido, que puede ir atrasado). */
   const add = (name: string, delta: number) => void api.player.command("add", name, delta);
+  /** Cambia un retardo y lo enseña en pantalla con el valor que ha quedado en mpv. */
+  const addDelay = async (name: "audio-delay" | "sub-delay", delta: number) => {
+    await api.player.command("add", name, delta);
+    const value = await api.player.get(name);
+    flash(`${t(name === "audio-delay" ? "player.audioDelay" : "player.subDelay")}: ${signed(value)}`);
+  };
 
   // Teclado: los atajos habituales de los reproductores.
   useEffect(() => {
@@ -282,10 +288,10 @@ export function Player() {
       else if (k === "m") void api.player.set("mute", !s.mute);
       else if (k === "f" || k === "enter") fullscreen(!s.fullscreen);
       else if (k === "t") void api.player.ontop(!s.ontop);
-      else if (e.ctrlKey && k === "-") add("audio-delay", -0.05);
-      else if (e.ctrlKey && (k === "+" || k === "=")) add("audio-delay", 0.05);
-      else if (k === "z") add("sub-delay", -0.1);
-      else if (k === "x") add("sub-delay", 0.1);
+      else if (e.ctrlKey && k === "-") void addDelay("audio-delay", -0.05);
+      else if (e.ctrlKey && (k === "+" || k === "=")) void addDelay("audio-delay", 0.05);
+      else if (k === "z") void addDelay("sub-delay", -0.1);
+      else if (k === "x") void addDelay("sub-delay", 0.1);
       else if (k === "b") cycleTrack("audio");
       else if (k === "v") cycleTrack("sub");
       else if (k === "a") cycleView("aspect");
@@ -351,7 +357,7 @@ export function Player() {
   const volume = s.mute ? 0 : Math.round(s.volume);
   const osdView = volumeOsd ? (
     <div className="pl-osd pl-osd-volume">
-      {volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+      {volume === 0 ? <VolumeX size={compact ? 18 : 30} /> : <Volume2 size={compact ? 18 : 30} />}
       <span className="pl-osd-bar">
         <span style={{ width: `${(volume / 130) * 100}%` }} />
       </span>
@@ -453,8 +459,8 @@ export function Player() {
               <Stepper
                 label={t("player.audioDelay")}
                 value={signed(s.audioDelay)}
-                onMinus={() => add("audio-delay", -0.05)}
-                onPlus={() => add("audio-delay", 0.05)}
+                onMinus={() => void addDelay("audio-delay", -0.05)}
+                onPlus={() => void addDelay("audio-delay", 0.05)}
                 onReset={s.audioDelay ? () => void api.player.set("audio-delay", 0) : undefined}
               />
               <p className="pl-note keys">
@@ -487,8 +493,8 @@ export function Player() {
               <Stepper
                 label={t("player.subDelay")}
                 value={signed(s.subDelay)}
-                onMinus={() => add("sub-delay", -0.1)}
-                onPlus={() => add("sub-delay", 0.1)}
+                onMinus={() => void addDelay("sub-delay", -0.1)}
+                onPlus={() => void addDelay("sub-delay", 0.1)}
                 onReset={s.subDelay ? () => void api.player.set("sub-delay", 0) : undefined}
               />
               <Stepper

@@ -604,6 +604,17 @@ pub fn set(app: &AppHandle, label: &str, name: &str, value: &str) -> Result<()> 
     s.mpv()?.set(name, value)
 }
 
+/// Lo que vale ahora mismo en mpv una de las propiedades que se pueden cambiar (el estado que se
+/// emite llega un poco después).
+pub fn get_number(app: &AppHandle, label: &str, name: &str) -> Result<f64> {
+    if !SETTABLE.contains(&name) {
+        bail!("property not allowed: {name}");
+    }
+    let s = session(app, label)?;
+    let value = s.mpv()?.get(name).unwrap_or_default();
+    value.parse().map_err(|_| anyhow::anyhow!("not a number: {name}"))
+}
+
 /// Caja de fondo de los subtítulos sí o no, para esta película.
 pub fn set_sub_background(app: &AppHandle, label: &str, on: bool) -> Result<()> {
     let s = session(app, label)?;

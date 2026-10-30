@@ -371,6 +371,11 @@ fn player_command(app: AppHandle, window: WebviewWindow, args: Vec<String>) -> C
 }
 
 #[tauri::command]
+fn player_get(app: AppHandle, window: WebviewWindow, name: String) -> CmdResult<f64> {
+    player::get_number(&app, window.label(), &name).map_err(err)
+}
+
+#[tauri::command]
 fn player_set(app: AppHandle, window: WebviewWindow, name: String, value: String) -> CmdResult<()> {
     player::set(&app, window.label(), &name, &value).map_err(err)
 }
@@ -679,6 +684,7 @@ pub fn run() {
             internal_player_available,
             player_state,
             player_command,
+            player_get,
             player_set,
             player_sub_background,
             player_sub_margin,

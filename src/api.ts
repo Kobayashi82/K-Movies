@@ -260,6 +260,7 @@ export const api = {
     command: (...args: (string | number)[]) => invoke<void>("player_command", { args: args.map(String) }),
     set: (name: string, value: string | number | boolean) =>
       invoke<void>("player_set", { name, value: typeof value === "boolean" ? (value ? "yes" : "no") : String(value) }),
+    get: (name: string) => invoke<number>("player_get", { name }),
     subBackground: (on: boolean) => invoke<void>("player_sub_background", { on }),
     /** Sube (+) o baja (−) los subtítulos esos puntos de %, para esta película. */
     subMargin: (percent: number) => invoke<void>("player_sub_margin", { percent }),
