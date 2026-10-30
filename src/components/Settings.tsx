@@ -303,6 +303,10 @@ export function Settings() {
                 />
                 {t("settings.posterYear")}
               </label>
+              <label className="check settings-check">
+                <input type="checkbox" checked={settings.posterRuntime !== "false"} onChange={(e) => setSetting("posterRuntime", String(e.target.checked))} />
+                {t("settings.posterRuntime")}
+              </label>
             </Section>
 
             <Section id="window" title={t("settings.window")}>

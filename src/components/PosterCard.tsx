@@ -5,7 +5,7 @@ import { movieMenu, openMenu, play } from "../actions";
 import { fileUrl, type Item } from "../api";
 import { useNowPlaying } from "../hooks";
 import { useStore } from "../store";
-import { formatNumber, heroTransition, hueOf } from "../util";
+import { formatNumber, formatRuntime, heroTransition, hueOf } from "../util";
 
 /** `showTitle`: el título dentro del póster cuando no hay imagen (solo si no se ve ya debajo o al lado). */
 export function PosterImage({ item, eager = false, showTitle = false }: { item: Item; eager?: boolean; showTitle?: boolean }) {
@@ -50,6 +50,7 @@ export interface CardDisplay {
   rating: "imdb" | "tmdb" | "both" | "none";
   title: boolean;
   year: boolean;
+  runtime: boolean;
 }
 
 export const PosterCard = memo(function PosterCard({ item, display, index }: { item: Item; display: CardDisplay; index: number }) {
@@ -59,6 +60,9 @@ export const PosterCard = memo(function PosterCard({ item, display, index }: { i
     { source: "tmdb", label: "TMDb", value: item.tmdbRating },
   ].filter((r) => r.value != null && (display.rating === "both" || display.rating === r.source));
   const year = display.year && item.year ? <span className="card-year">{item.year}</span> : null;
+  // La duración de TMDb y, si no hay, la del archivo.
+  const minutes = item.runtime ?? (item.duration ? Math.round(item.duration / 60) : null);
+  const runtime = display.runtime && minutes ? <span className="card-year">{formatRuntime(minutes)}</span> : null;
   // Mientras se ve, la barra avanza en directo.
   const live = useNowPlaying(item.id);
   const position = live?.tracked ? live.position : item.position;
@@ -114,7 +118,7 @@ export const PosterCard = memo(function PosterCard({ item, display, index }: { i
           </span>
         )}
       </div>
-      {(display.title || display.year) && (
+      {(display.title || display.year || display.runtime) && (
         <div className="card-info">
           {display.title && (
             <span className="card-title" title={item.title}>
@@ -122,6 +126,7 @@ export const PosterCard = memo(function PosterCard({ item, display, index }: { i
             </span>
           )}
           {year}
+          {runtime}
           {item.matched === 0 && <span className="unmatched-dot" />}
         </div>
       )}

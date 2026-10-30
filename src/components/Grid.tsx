@@ -8,7 +8,7 @@ import { PosterCard, type CardDisplay } from "./PosterCard";
 
 const PADDING = 28;
 // Alto del texto bajo el póster: separación + una línea (título y año van en la misma).
-const infoHeight = (d: CardDisplay) => (d.title || d.year ? 8 + 22 : 0);
+const infoHeight = (d: CardDisplay) => (d.title || d.year || d.runtime ? 8 + 22 : 0);
 
 /**
  * Rejilla virtualizada por filas: solo existen en el DOM las filas visibles (más unas pocas
@@ -36,8 +36,9 @@ export function Grid({ items, header }: { items: Item[]; header?: ReactNode }) {
       title: settings.posterTitle !== "false",
       // El año va siempre a la derecha del título; solo se elige si se ve.
       year: settings.posterYear !== "false" && settings.posterYear !== "none",
+      runtime: settings.posterRuntime !== "false",
     }),
-    [settings.posterRating, settings.posterTitle, settings.posterYear],
+    [settings.posterRating, settings.posterTitle, settings.posterYear, settings.posterRuntime],
   );
 
   const gap = Math.round(Math.min(28, Math.max(14, gridSize * 0.11)));
