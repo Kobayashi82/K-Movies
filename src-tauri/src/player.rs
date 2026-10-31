@@ -4,7 +4,7 @@
 
 use crate::mpv::{Event, Format, Mpv, Value};
 use crate::playback::{Resolved, Tracker};
-use crate::{AppState, db, library, tray};
+use crate::{AppState, db, library, smtc, tray};
 use anyhow::{Result, bail};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -359,11 +359,38 @@ pub fn open(app: &AppHandle, r: Resolved) -> Result<()> {
         });
     }
 
+    let controls = media_controls(app, &r, hwnd, &session);
     let tracker = Tracker::begin(app, &r, "K-Movies".into(), true, Some(label.clone()));
-    let context = Context { label, file_id: r.file_id, prefs: file_prefs, general, hwnd };
+    let context = Context { label, file_id: r.file_id, prefs: file_prefs, general, hwnd, controls };
     let app = app.clone();
     std::thread::spawn(move || event_loop(app, mpv, session, tracker, context));
     Ok(())
+}
+
+/// La película en los controles multimedia de Windows (título, año y póster) y sus teclas
+/// conectadas con mpv. Si Windows no los da, el reproductor funciona igual.
+fn media_controls(app: &AppHandle, r: &Resolved, hwnd: isize, session: &Arc<Session>) -> Option<smtc::Controls> {
+    let state = app.state::<AppState>();
+    let (year, poster): (Option<i64>, Option<String>) = state
+        .db()
+        .query_row("SELECT year, poster FROM items WHERE id = ?1", [r.item_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap_or_default();
+    let cover = poster.map(|p| state.cache_dir.join(p)).filter(|p| p.exists());
+    let info = smtc::Info { title: &r.title, subtitle: year.map(|y| y.to_string()), cover: cover.as_deref() };
+    let session = session.clone();
+    let result = smtc::Controls::new(hwnd, &info, move |action| {
+        let Ok(mpv) = session.mpv() else { return };
+        let done = match action {
+            smtc::Action::Play => mpv.set("pause", "no"),
+            smtc::Action::Pause => mpv.set("pause", "yes"),
+            smtc::Action::Seek(sec) => mpv.command(&["seek", &sec.to_string(), "relative"]),
+            smtc::Action::SeekTo(sec) => mpv.command(&["seek", &format!("{sec:.2}"), "absolute"]),
+        };
+        if let Err(e) = done {
+            eprintln!("[player] {e:#}");
+        }
+    });
+    result.map_err(|e| eprintln!("[player] smtc: {e:#}")).ok()
 }
 
 /// Enseña la ventana la primera vez (nace oculta).
@@ -389,6 +416,8 @@ struct Context {
     /// Aspecto de los subtítulos de Ajustes: lo que coincida con él no se guarda con el archivo.
     general: SubStyle,
     hwnd: isize,
+    /// Controles multimedia de Windows (se quitan al acabar la sesión).
+    controls: Option<smtc::Controls>,
 }
 
 impl SubStyle {
@@ -482,6 +511,9 @@ fn event_loop(app: AppHandle, mpv: Arc<Mpv>, session: Arc<Session>, mut tracker:
                     let frame = Frame { h: num("h"), mt: num("mt"), mb: num("mb") };
                     session.with_state(|s| s.frame = frame);
                 } else {
+                    if let (Some(c), "pause", Value::Flag(paused)) = (&ctx.controls, name.as_str(), &value) {
+                        c.set_paused(*paused);
+                    }
                     remember(&app, &session, &name, &value);
                     session.with_state(|s| apply(s, &name, value));
                 }
@@ -499,6 +531,9 @@ fn event_loop(app: AppHandle, mpv: Arc<Mpv>, session: Arc<Session>, mut tracker:
             let s = session.state();
             if let (Some(pos), Some(len)) = (s.position, s.duration) {
                 tracker.status(pos, len, s.paused);
+                if let Some(c) = &ctx.controls {
+                    c.set_timeline(pos, len);
+                }
             }
             tracked = Instant::now();
         }
@@ -514,7 +549,9 @@ fn event_loop(app: AppHandle, mpv: Arc<Mpv>, session: Arc<Session>, mut tracker:
             eprintln!("[player] {e:#}");
         }
     }
-    // Primero mpv (destruye su ventana de vídeo) y después la nuestra.
+    // Fuera de los controles multimedia de Windows; después mpv (destruye su ventana de vídeo) y
+    // por último la nuestra.
+    drop(ctx.controls);
     *session.mpv.lock().unwrap_or_else(|e| e.into_inner()) = None;
     drop(mpv);
     if let Some(w) = app.get_webview_window(label) {

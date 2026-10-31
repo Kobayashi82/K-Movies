@@ -10,6 +10,7 @@ mod playback;
 mod player;
 mod players;
 mod scanner;
+mod smtc;
 mod tmdb;
 mod transfers;
 mod tray;

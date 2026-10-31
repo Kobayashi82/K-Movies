@@ -2113,6 +2113,7 @@ dependencies = [
  "tokio",
  "trash",
  "walkdir",
+ "windows",
  "windows-sys 0.61.2",
  "zip",
  "zstd",
